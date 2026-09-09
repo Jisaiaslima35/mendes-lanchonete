@@ -2,6 +2,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { StatusSelect } from "@/components/admin/status-select";
+import { PaymentStatusSelect } from "@/components/admin/payment-status-select";
 import type { Order, OrderItem } from "@/types/database";
 
 export default async function AdminPedidosPage() {
@@ -15,7 +16,10 @@ export default async function AdminPedidosPage() {
     .order("created_at", { ascending: false })
     .limit(100);
 
-  const orders = (data ?? []) as unknown as (Order & { order_items: OrderItem[] })[];
+  const orders = (data ?? []) as unknown as (Order & {
+    order_items: OrderItem[];
+    payment_status: "pending" | "confirmed" | "failed";
+  })[];
 
   return (
     <div className="space-y-4">
@@ -26,24 +30,41 @@ export default async function AdminPedidosPage() {
       ) : (
         <div className="space-y-3">
           {orders.map((order) => (
-            <div key={order.id} className="rounded-xl border border-stone-200 bg-white p-4">
+            <div
+              key={order.id}
+              className="rounded-xl border border-stone-200 bg-white p-4"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="font-bold text-stone-900">{order.order_number}</p>
+                  <p className="font-bold text-stone-900">
+                    {order.order_number}
+                  </p>
+
                   <p className="text-sm text-stone-500">
-                    {formatDateTime(order.created_at)} — {order.customer_name} ({order.customer_phone})
+                    {formatDateTime(order.created_at)} —{" "}
+                    {order.customer_name} ({order.customer_phone})
                   </p>
                 </div>
-                <StatusSelect orderId={order.id} status={order.status} />
+
+                <StatusSelect
+                  orderId={order.id}
+                  status={order.status}
+                />
               </div>
 
               <ul className="mt-3 space-y-1 border-t border-stone-100 pt-2 text-sm text-stone-700">
                 {order.order_items.map((item) => (
-                  <li key={item.id} className="flex justify-between">
+                  <li
+                    key={item.id}
+                    className="flex justify-between"
+                  >
                     <span>
                       {item.quantity}x {item.product_name}
                     </span>
-                    <span>{formatCurrency(item.line_total)}</span>
+
+                    <span>
+                      {formatCurrency(item.line_total)}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -53,9 +74,38 @@ export default async function AdminPedidosPage() {
                   {order.fulfillment === "delivery"
                     ? `Entrega — ${order.neighborhood_name ?? ""}`
                     : "Retirada no local"}{" "}
-                  · {order.payment_method === "pix" ? "Pix" : order.payment_method === "cash" ? "Dinheiro" : "Cartão"}
+                  ·{" "}
+                  {order.payment_method === "pix"
+                    ? "Pix"
+                    : order.payment_method === "cash"
+                      ? "Dinheiro"
+                      : "Cartão"}
                 </span>
-                <span className="font-bold text-stone-900">{formatCurrency(order.total)}</span>
+
+                <span className="font-bold text-stone-900">
+                  {formatCurrency(order.total)}
+                </span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-stone-50 p-3">
+                <div>
+                  <p className="text-sm font-semibold text-stone-800">
+                    Pagamento
+                  </p>
+
+                  <p className="text-xs text-stone-500">
+                    {order.payment_method === "pix"
+                      ? "Pagamento via Pix"
+                      : order.payment_method === "cash"
+                        ? "Pagamento em dinheiro"
+                        : "Pagamento com cartão"}
+                  </p>
+                </div>
+
+                <PaymentStatusSelect
+                  orderId={order.id}
+                  status={order.payment_status}
+                />
               </div>
             </div>
           ))}

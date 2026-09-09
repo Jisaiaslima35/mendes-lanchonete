@@ -24,3 +24,25 @@ export async function updateOrderStatus(orderId: string, status: string): Promis
     return actionError(toUserMessage(err));
   }
 }
+
+export async function updatePaymentStatus(
+  orderId: string,
+  paymentStatus: "pending" | "confirmed" | "failed",
+): Promise<ActionResult> {
+  try {
+    const supabase = await createServerSupabase();
+
+    const { error } = await supabase
+      .from("orders")
+      .update({ payment_status: paymentStatus })
+      .eq("id", orderId);
+
+    if (error) return actionError(toUserMessage(error));
+
+    revalidatePath("/admin/pedidos");
+
+    return actionOk();
+  } catch (err) {
+    return actionError(toUserMessage(err));
+  }
+}

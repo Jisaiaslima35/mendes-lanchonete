@@ -85,14 +85,16 @@ export function CheckoutForm({
     });
     setSubmitting(false);
 
-    if (!result.ok) {
-      whatsappWindow?.close();
-      setError(result.error);
-      setFieldErrors(result.fieldErrors ?? {});
-      return;
-    }
+    setSubmitting(false);
 
-    if (whatsappWindow) whatsappWindow.location.href = result.data.whatsappUrl;
+if (!result.ok) {
+  setError(result.error);
+  setFieldErrors(result.fieldErrors ?? {});
+  return;
+}
+
+limparCarrinho();
+router.push(`/pedido/${result.data.publicToken}`);
     limparCarrinho();
     router.push(`/pedido/${result.data.publicToken}`);
   }
@@ -314,8 +316,8 @@ export function CheckoutForm({
       )}
 
       <Button type="submit" size="lg" className="w-full" disabled={submitting}>
-        {submitting ? "Enviando pedido..." : "Confirmar pedido pelo WhatsApp"}
-      </Button>
+  {submitting ? "Enviando pedido..." : "Finalizar pedido"}
+</Button>
     </form>
   );
 }

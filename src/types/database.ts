@@ -233,7 +233,8 @@ interface OrderRow {
   neighborhood_id: string | null;
   neighborhood_name: string | null;
   payment_method: PaymentMethod;
-  change_for: number | null;
+payment_status: "pending" | "confirmed" | "failed";
+change_for: number | null;
   items_total: number;
   delivery_fee: number;
   discount: number;
