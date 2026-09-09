@@ -9,7 +9,7 @@ export async function POST(request: Request) {
 
     const { orderId, amount, description, payer } = body;
 
-    if (!orderId || !amount || !payer?.email) {
+    if (!orderId || !payer?.email) {
       return NextResponse.json(
         { error: "Dados do pagamento incompletos." },
         { status: 400 },
