@@ -93,6 +93,11 @@ if (!result.ok) {
 }
 
 if (paymentMethod === "pix") {
+  console.log("DADOS PIX:", {
+  orderId: result.data.orderId,
+  customerEmail: result.data.customerEmail,
+});
+
   const paymentResponse = await fetch("/api/pagamentos/pix", {
     method: "POST",
     headers: {
