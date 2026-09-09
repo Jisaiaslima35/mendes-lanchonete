@@ -242,9 +242,7 @@ change_for: data.paymentMethod === "cash" ? (data.changeFor ?? null) : null,
 
     if (orderError || !order) {
   logError("checkout.insert_order", orderError);
-  return actionError(
-    orderError?.message || "Não foi possível registrar o pedido."
-  );
+  return actionError("Não foi possível registrar o pedido. Tente novamente.");
 }
 
     const itemRows = pricedItems.map((item) => {
