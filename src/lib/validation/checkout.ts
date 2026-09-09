@@ -35,6 +35,11 @@ export const checkoutSchema = z
     fulfillment: z.enum(["delivery", "pickup"]),
     customerName: z.string().trim().min(2, "Informe seu nome.").max(80),
     customerPhone: phoneSchema,
+    customerEmail: z
+  .string()
+  .trim()
+  .email("Informe um e-mail válido.")
+  .max(120),
     address: addressSchema.optional(),
     paymentMethod: z.enum(["pix", "cash", "card"]),
     changeFor: z.coerce.number().min(0).optional(),

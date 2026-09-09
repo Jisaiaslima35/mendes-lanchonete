@@ -25,6 +25,7 @@ export function CheckoutForm({
   );
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [zip, setZip] = useState("");
   const [street, setStreet] = useState("");
   const [number, setNumber] = useState("");
@@ -59,6 +60,7 @@ export function CheckoutForm({
       fulfillment,
       customerName: name,
       customerPhone: phone,
+      customerEmail: email,
       address:
         fulfillment === "delivery"
           ? {
@@ -83,7 +85,6 @@ export function CheckoutForm({
     });
     setSubmitting(false);
 
-    setSubmitting(false);
 
 if (!result.ok) {
   setError(result.error);
@@ -91,10 +92,34 @@ if (!result.ok) {
   return;
 }
 
+if (paymentMethod === "pix") {
+  const paymentResponse = await fetch("/api/pagamentos/pix", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      orderId: result.data.orderId,
+      payer: {
+        email: result.data.customerEmail,
+      },
+    }),
+  });
+
+  const paymentData = await paymentResponse.json();
+
+  if (!paymentResponse.ok) {
+    setError(paymentData.error ?? "Não foi possível gerar o Pix.");
+    setSubmitting(false);
+    return;
+  }
+
+  console.log("PIX MERCADO PAGO:", paymentData);
+alert(JSON.stringify(paymentData, null, 2));
+}
+
 limparCarrinho();
 router.push(`/pedido/${result.data.publicToken}`);
-    limparCarrinho();
-    router.push(`/pedido/${result.data.publicToken}`);
   }
 
   if (itens.length === 0) {
@@ -157,7 +182,19 @@ router.push(`/pedido/${result.data.publicToken}`);
           <FieldError message={fieldErrors.customerPhone?.[0]} />
         </FieldGroup>
       </fieldset>
-
+          <FieldGroup>
+  <Label htmlFor="email" required>
+    E-mail
+  </Label>
+  <Input
+    id="email"
+    type="email"
+    required
+    placeholder="seuemail@gmail.com"
+    value={email}
+    onChange={(e) => setEmail(e.target.value)}
+  />
+</FieldGroup>
       {fulfillment === "delivery" && (
         <fieldset className="space-y-3">
           <legend className="mb-1 font-semibold text-brand-900">Endereço de entrega</legend>

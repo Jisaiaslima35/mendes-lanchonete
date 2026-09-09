@@ -16,7 +16,13 @@ import { buildWhatsAppMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
 import { actionError, actionOk, logError, toUserMessage, type ActionResult } from "@/lib/errors";
 import type { BusinessHour, Settings } from "@/types/database";
 
-type CheckoutResult = { orderNumber: string; publicToken: string; whatsappUrl: string };
+type CheckoutResult = {
+  orderId: string;
+  orderNumber: string;
+  publicToken: string;
+  customerEmail: string;
+  whatsappUrl: string;
+};
 
 export async function submitCheckout(input: CheckoutInput): Promise<ActionResult<CheckoutResult>> {
   const parsed = checkoutSchema.safeParse(input);
@@ -218,6 +224,7 @@ export async function submitCheckout(input: CheckoutInput): Promise<ActionResult
         customer_id: customer?.id ?? null,
         customer_name: data.customerName,
         customer_phone: data.customerPhone,
+        customer_email: data.customerEmail,
         fulfillment: data.fulfillment,
         address_zip: data.address?.zip ?? null,
         address_street: data.address?.street ?? null,
@@ -301,7 +308,13 @@ change_for: data.paymentMethod === "cash" ? (data.changeFor ?? null) : null,
 
     const whatsappUrl = buildWhatsAppUrl((settings as Settings).whatsapp_number, message);
 
-    return actionOk({ orderNumber: order.order_number, publicToken: order.public_token, whatsappUrl });
+    return actionOk({
+  orderId: order.id,
+  orderNumber: order.order_number,
+  publicToken: order.public_token,
+  customerEmail: data.customerEmail,
+  whatsappUrl,
+});
   } catch (err) {
     logError("checkout.submit", err);
     return actionError(toUserMessage(err));
