@@ -91,13 +91,16 @@ export default async function PedidoConfirmacaoPage({
       </div>
 
       {order.payment_method === "pix" && settings.pix_key && (
-        <PixPayment
-          token={token}
-          pixKey={settings.pix_key}
-          pixKeyType={settings.pix_key_type}
-          total={order.total}
-          paymentStatus={order.payment_status}
-        />
+       <PixPayment
+  token={token}
+  pixKey={settings.pix_key}
+  pixKeyType={settings.pix_key_type}
+  total={order.total}
+  paymentStatus={order.payment_status}
+  pixQrCode={order.pix_qr_code}
+  pixQrCodeBase64={order.pix_qr_code_base64}
+  pixTicketUrl={order.pix_ticket_url}
+/>
       )}
 
       {order.payment_method !== "pix" && (

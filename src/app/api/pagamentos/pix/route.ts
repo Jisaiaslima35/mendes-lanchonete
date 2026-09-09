@@ -66,12 +66,15 @@ export async function POST(request: Request) {
     }
 
     await supabase
-      .from("orders")
-      .update({
-        payment_provider: "mercadopago",
-        payment_transaction_id: paymentId,
-      })
-      .eq("id", order.id);
+  .from("orders")
+  .update({
+    payment_provider: "mercadopago",
+    payment_transaction_id: paymentId,
+    pix_qr_code: pixData.qr_code,
+    pix_qr_code_base64: pixData.qr_code_base64,
+    pix_ticket_url: pixData.ticket_url,
+  })
+  .eq("id", order.id);
 
     return NextResponse.json({
       paymentId,

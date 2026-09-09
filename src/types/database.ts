@@ -234,6 +234,13 @@ interface OrderRow {
   neighborhood_name: string | null;
   payment_method: PaymentMethod;
 payment_status: "pending" | "confirmed" | "failed";
+customer_email: string | null;
+payment_provider: string | null;
+payment_transaction_id: string | null;
+payment_paid_at: string | null;
+pix_qr_code: string | null;
+pix_qr_code_base64: string | null;
+pix_ticket_url: string | null;
 change_for: number | null;
   items_total: number;
   delivery_fee: number;
