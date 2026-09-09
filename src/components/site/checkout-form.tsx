@@ -100,6 +100,7 @@ if (paymentMethod === "pix") {
     },
     body: JSON.stringify({
       orderId: result.data.orderId,
+      amount: 0,
       payer: {
         email: result.data.customerEmail,
       },
@@ -115,9 +116,7 @@ if (paymentMethod === "pix") {
   }
 
   console.log("PIX MERCADO PAGO:", paymentData);
-alert(JSON.stringify(paymentData, null, 2));
 }
-
 limparCarrinho();
 router.push(`/pedido/${result.data.publicToken}`);
   }
