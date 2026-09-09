@@ -54,8 +54,6 @@ export function CheckoutForm({
     setError(null);
     setFieldErrors({});
 
-    const whatsappWindow = window.open("", "_blank");
-
     setSubmitting(true);
     const result = await submitCheckout({
       fulfillment,
