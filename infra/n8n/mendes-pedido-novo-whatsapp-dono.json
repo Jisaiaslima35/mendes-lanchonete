@@ -1,0 +1,291 @@
+{
+  "id": "a74716ed-f321-4f07-899c-81fa12512746",
+  "name": "Mendes - Notificar WhatsApp Dono",
+  "description": "Recebe pedido do cardapio Mendes via webhook, formata comanda e dispara via Evolution API pro WhatsApp 5584996327329",
+  "active": true,
+  "activeVersionId": "5999c000-11a5-48e1-ba4c-9552697c7912",
+  "createdAt": "2026-09-13T00:13:34.300Z",
+  "updatedAt": "2026-09-13T00:13:34.300Z",
+  "isArchived": false,
+  "versionId": "5999c000-11a5-48e1-ba4c-9552697c7912",
+  "versionCounter": 2,
+  "sourceWorkflowId": null,
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "id": "e4c30acf-f16a-485c-b15d-1e87895c1a9c",
+      "name": "Mendes Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        -464,
+        0
+      ],
+      "webhookId": "ef7fecdb-d710-4137-b486-c86b105d0428",
+      "parameters": {
+        "path": "mendes-order-39659ed3",
+        "options": {},
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "5b9a0e88-7670-4de0-85d4-7f35e6fb36d4",
+      "name": "Formatar Comanda",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -240,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Modo runOnceForAllItems: recebemos array de items, devolvemos array de items novos\nconst allInputs = $input.all();\nconst out = [];\n\nfor (const input of allInputs) {\n  const raw = input.json.body || input.json;\n\n  const items = (raw.items || []).map(it => {\n    let line = `${it.quantity}x ${it.name}`;\n    if (it.options && it.options.length) {\n      const opts = it.options.map(o => o.name).join(', ');\n      line += ` (${opts})`;\n    }\n    if (it.notes) line += `\\n   obs: ${it.notes}`;\n    line += ` — R$ ${Number(it.line_total).toFixed(2)}`;\n    return line;\n  }).join('\\n\\n');\n\n  const addr = raw.delivery_address && raw.delivery_address.fulfillment === 'delivery'\n    ? `\\n\\n📍 Entrega: ${raw.delivery_address.street || ''}, ${raw.delivery_address.number || 's/n'}${raw.delivery_address.complement ? ' (' + raw.delivery_address.complement + ')' : ''}\\nBairro: ${raw.delivery_address.neighborhood || '—'}${raw.delivery_address.reference ? '\\nRef: ' + raw.delivery_address.reference : ''}`\n    : '\\n\\n🏪 Retirada no balcão';\n\n  const payEmoji = { pix: '💠 Pix', cash: '💵 Dinheiro', card: '💳 Cartão' }[raw.payment?.method] || '—';\n  const payStatus = raw.payment?.status === 'confirmed' ? '✅ PAGO' : '⏳ pendente';\n\n  const text = `🍔 *NOVO PEDIDO #${raw.short_id || '—'}*${addr}\\n\\n👤 ${raw.customer?.name || '—'}\\n📱 ${raw.customer?.phone || '—'}\\n\\n*Itens:*\\n${items || '(sem itens)'}\\n\\nSubtotal: R$ ${Number(raw.totals?.subtotal || 0).toFixed(2)}\\nEntrega: R$ ${Number(raw.totals?.delivery_fee || 0).toFixed(2)}${Number(raw.totals?.discount || 0) > 0 ? '\\nDesconto: -R$ ' + Number(raw.totals.discount).toFixed(2) : ''}\\n*Total: R$ ${Number(raw.totals?.total || 0).toFixed(2)}*\\n\\n💰 ${payEmoji} — ${payStatus}`;\n\n  out.push({\n    json: {\n      number: '5584996327329',\n      text: text,\n      order_id: raw.order_id,\n      short_id: raw.short_id\n    }\n  });\n}\n\nreturn out;\n",
+        "language": "javaScript"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "a8836437-e06d-46ee-8ec4-f584016049f4",
+      "name": "Enviar WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -16,
+        0
+      ],
+      "parameters": {
+        "url": "https://evo.automacaojs.us/message/sendText/automacaojs",
+        "method": "POST",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "jsonBody": "={\n  \"number\": {{ JSON.stringify($json.number) }},\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"delay\": 1200\n}",
+        "sendBody": true,
+        "sendHeaders": true,
+        "specifyBody": "json",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "REDACTED_USE_N8N_CREDENTIALS"
+            }
+          ]
+        }
+      },
+      "typeVersion": 4.3
+    },
+    {
+      "id": "054adc34-bd6c-4f49-811f-8d6a41d1c07c",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        208,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"order_id\": {{ JSON.stringify($json.order_id) }},\n  \"short_id\": {{ JSON.stringify($json.short_id) }}\n}"
+      },
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Mendes Webhook": {
+      "main": [
+        [
+          {
+            "node": "Formatar Comanda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Comanda": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "instanceId": "mendes-cardapio-2026",
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "a74716ed-f321-4f07-899c-81fa12512746",
+      "projectId": "pjIZNWsrjwLtFf7q",
+      "project": {
+        "id": "pjIZNWsrjwLtFf7q",
+        "name": "José isaias <isaiassilva356@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "9a7acf52-76fa-4e62-b6e5-052d4067d89f",
+        "createdAt": "2026-05-14T16:03:13.572Z",
+        "updatedAt": "2026-05-14T16:14:19.160Z"
+      },
+      "createdAt": "2026-09-13T00:17:27.571Z",
+      "updatedAt": "2026-09-13T00:17:27.571Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "5999c000-11a5-48e1-ba4c-9552697c7912",
+    "workflowId": "a74716ed-f321-4f07-899c-81fa12512746",
+    "nodes": [
+      {
+        "id": "e4c30acf-f16a-485c-b15d-1e87895c1a9c",
+        "name": "Mendes Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "position": [
+          -464,
+          0
+        ],
+        "webhookId": "ef7fecdb-d710-4137-b486-c86b105d0428",
+        "parameters": {
+          "path": "mendes-order-39659ed3",
+          "options": {},
+          "httpMethod": "POST",
+          "responseMode": "responseNode"
+        },
+        "typeVersion": 2
+      },
+      {
+        "id": "5b9a0e88-7670-4de0-85d4-7f35e6fb36d4",
+        "name": "Formatar Comanda",
+        "type": "n8n-nodes-base.code",
+        "position": [
+          -240,
+          0
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "jsCode": "// Modo runOnceForAllItems: recebemos array de items, devolvemos array de items novos\nconst allInputs = $input.all();\nconst out = [];\n\nfor (const input of allInputs) {\n  const raw = input.json.body || input.json;\n\n  const items = (raw.items || []).map(it => {\n    let line = `${it.quantity}x ${it.name}`;\n    if (it.options && it.options.length) {\n      const opts = it.options.map(o => o.name).join(', ');\n      line += ` (${opts})`;\n    }\n    if (it.notes) line += `\\n   obs: ${it.notes}`;\n    line += ` — R$ ${Number(it.line_total).toFixed(2)}`;\n    return line;\n  }).join('\\n\\n');\n\n  const addr = raw.delivery_address && raw.delivery_address.fulfillment === 'delivery'\n    ? `\\n\\n📍 Entrega: ${raw.delivery_address.street || ''}, ${raw.delivery_address.number || 's/n'}${raw.delivery_address.complement ? ' (' + raw.delivery_address.complement + ')' : ''}\\nBairro: ${raw.delivery_address.neighborhood || '—'}${raw.delivery_address.reference ? '\\nRef: ' + raw.delivery_address.reference : ''}`\n    : '\\n\\n🏪 Retirada no balcão';\n\n  const payEmoji = { pix: '💠 Pix', cash: '💵 Dinheiro', card: '💳 Cartão' }[raw.payment?.method] || '—';\n  const payStatus = raw.payment?.status === 'confirmed' ? '✅ PAGO' : '⏳ pendente';\n\n  const text = `🍔 *NOVO PEDIDO #${raw.short_id || '—'}*${addr}\\n\\n👤 ${raw.customer?.name || '—'}\\n📱 ${raw.customer?.phone || '—'}\\n\\n*Itens:*\\n${items || '(sem itens)'}\\n\\nSubtotal: R$ ${Number(raw.totals?.subtotal || 0).toFixed(2)}\\nEntrega: R$ ${Number(raw.totals?.delivery_fee || 0).toFixed(2)}${Number(raw.totals?.discount || 0) > 0 ? '\\nDesconto: -R$ ' + Number(raw.totals.discount).toFixed(2) : ''}\\n*Total: R$ ${Number(raw.totals?.total || 0).toFixed(2)}*\\n\\n💰 ${payEmoji} — ${payStatus}`;\n\n  out.push({\n    json: {\n      number: '5584996327329',\n      text: text,\n      order_id: raw.order_id,\n      short_id: raw.short_id\n    }\n  });\n}\n\nreturn out;\n",
+          "language": "javaScript"
+        },
+        "typeVersion": 2
+      },
+      {
+        "id": "a8836437-e06d-46ee-8ec4-f584016049f4",
+        "name": "Enviar WhatsApp",
+        "type": "n8n-nodes-base.httpRequest",
+        "position": [
+          -16,
+          0
+        ],
+        "parameters": {
+          "url": "https://evo.automacaojs.us/message/sendText/automacaojs",
+          "method": "POST",
+          "options": {
+            "timeout": 10000,
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            }
+          },
+          "jsonBody": "={\n  \"number\": {{ JSON.stringify($json.number) }},\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"delay\": 1200\n}",
+          "sendBody": true,
+          "sendHeaders": true,
+          "specifyBody": "json",
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "apikey",
+                "value": "2G3Rk8gZbV1ZYmhy1YUV3NwkLWYLHpH3"
+              }
+            ]
+          }
+        },
+        "typeVersion": 4.3
+      },
+      {
+        "id": "054adc34-bd6c-4f49-811f-8d6a41d1c07c",
+        "name": "Respond",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "position": [
+          208,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={\n  \"ok\": true,\n  \"order_id\": {{ JSON.stringify($json.order_id) }},\n  \"short_id\": {{ JSON.stringify($json.short_id) }}\n}"
+        },
+        "typeVersion": 1
+      }
+    ],
+    "connections": {
+      "Mendes Webhook": {
+        "main": [
+          [
+            {
+              "node": "Formatar Comanda",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Formatar Comanda": {
+        "main": [
+          [
+            {
+              "node": "Enviar WhatsApp",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Respond",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "claudinho",
+    "name": "Mendes - Notificar WhatsApp Dono",
+    "description": null,
+    "autosaved": false,
+    "createdAt": "2026-09-13T00:16:21.784Z",
+    "updatedAt": "2026-09-13T00:16:21.784Z",
+    "workflowPublishHistory": []
+  }
+}

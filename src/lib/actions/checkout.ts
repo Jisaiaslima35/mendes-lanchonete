@@ -13,6 +13,7 @@ import {
   type PricedCartItem,
 } from "@/lib/precos";
 import { buildWhatsAppMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
+import { buildOrderPayload, sendOrderToN8N } from "@/lib/n8n";
 import { actionError, actionOk, logError, toUserMessage, type ActionResult } from "@/lib/errors";
 import type { BusinessHour, Settings } from "@/types/database";
 
@@ -279,6 +280,30 @@ change_for: data.paymentMethod === "cash" ? (data.changeFor ?? null) : null,
           last_order_at: new Date().toISOString(),
         })
         .eq("id", customer.id);
+    }
+
+    // Disparo fire-and-forget pro webhook do n8n em pedidos cash/card.
+    // Pix tem seu próprio disparo dentro do /api/webhooks/mercadopago após approved.
+    // Não bloqueia o actionOk — erro do n8n é tratado dentro do helper.
+    if (data.paymentMethod !== "pix") {
+      void sendOrderToN8N(
+        buildOrderPayload(
+          order as unknown as Parameters<typeof buildOrderPayload>[0],
+          itemRows.map((ir, idx) => ({
+            id: `tmp-${idx}`,
+            order_id: order.id,
+            product_id: ir.product_id,
+            product_name: ir.product_name,
+            unit_price: ir.unit_price,
+            quantity: ir.quantity,
+            options: ir.options as { groupName: string; optionName: string; priceDelta: number }[],
+            options_total: ir.options_total,
+            notes: ir.notes,
+            line_total: ir.line_total,
+            created_at: new Date().toISOString(),
+          })) as Parameters<typeof buildOrderPayload>[1],
+        ),
+      );
     }
 
     const message = buildWhatsAppMessage({

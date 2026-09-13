@@ -90,7 +90,7 @@ export default async function PedidoConfirmacaoPage({
         </div>
       </div>
 
-      {order.payment_method === "pix" && settings.pix_key && (
+      {order.payment_method === "pix" && (
        <PixPayment
   token={token}
   pixKey={settings.pix_key}

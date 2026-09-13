@@ -1,115 +1,66 @@
 import { createServerSupabase } from "@/lib/supabase/server";
 import { getCurrentTenantId } from "@/lib/tenant";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
-import { StatusSelect } from "@/components/admin/status-select";
-import { PaymentStatusSelect } from "@/components/admin/payment-status-select";
+import { KanbanBoard, type KanbanOrder } from "@/components/admin/kanban-board";
 import type { Order, OrderItem } from "@/types/database";
+
+type OrderRow = Order & {
+  order_items: OrderItem[];
+  payment_status: "pending" | "confirmed" | "failed";
+};
+
+function summarizeItems(items: OrderItem[]): string {
+  return items
+    .map((it) => `${it.quantity}x ${it.product_name}`)
+    .join(" · ");
+}
 
 export default async function AdminPedidosPage() {
   const supabase = await createServerSupabase();
   const tenantId = await getCurrentTenantId();
 
+  // Pega até 150 pedidos abertos + concluídos recentes pra alimentar o Kanban.
+  // Concluídos com mais de 24h ficam fora pra não poluir a coluna "Concluídos".
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
   const { data } = await supabase
     .from("orders")
     .select("*, order_items(*)")
     .eq("tenant_id", tenantId)
+    .or(`status.neq.entregue,created_at.gte.${since}`)
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(150);
 
-  const orders = (data ?? []) as unknown as (Order & {
-    order_items: OrderItem[];
-    payment_status: "pending" | "confirmed" | "failed";
-  })[];
+  const rows = (data ?? []) as unknown as OrderRow[];
+
+  const orders: KanbanOrder[] = rows.map((row) => ({
+    id: row.id,
+    order_number: row.order_number,
+    created_at: row.created_at,
+    customer_name: row.customer_name,
+    neighborhood_name: row.neighborhood_name ?? null,
+    fulfillment: row.fulfillment,
+    payment_method: row.payment_method,
+    payment_status: row.payment_status,
+    total: row.total,
+    status: row.status,
+    items_summary: summarizeItems(row.order_items),
+  }));
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-stone-900">Pedidos</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-stone-900">Pedidos</h1>
+        <p className="text-xs text-stone-500">
+          Atualização em tempo real · clique em <strong>Avançar</strong> para mover o card
+        </p>
+      </div>
 
       {orders.length === 0 ? (
-        <p className="text-stone-500">Nenhum pedido ainda.</p>
+        <p className="rounded-xl border border-dashed border-stone-200 bg-white p-6 text-center text-stone-500">
+          Nenhum pedido ativo. Quando chegar um pedido novo, ele aparece aqui automaticamente.
+        </p>
       ) : (
-        <div className="space-y-3">
-          {orders.map((order) => (
-            <div
-              key={order.id}
-              className="rounded-xl border border-stone-200 bg-white p-4"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="font-bold text-stone-900">
-                    {order.order_number}
-                  </p>
-
-                  <p className="text-sm text-stone-500">
-                    {formatDateTime(order.created_at)} —{" "}
-                    {order.customer_name} ({order.customer_phone})
-                  </p>
-                </div>
-
-                <StatusSelect
-                  orderId={order.id}
-                  status={order.status}
-                />
-              </div>
-
-              <ul className="mt-3 space-y-1 border-t border-stone-100 pt-2 text-sm text-stone-700">
-                {order.order_items.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex justify-between"
-                  >
-                    <span>
-                      {item.quantity}x {item.product_name}
-                    </span>
-
-                    <span>
-                      {formatCurrency(item.line_total)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2 text-sm">
-                <span className="text-stone-500">
-                  {order.fulfillment === "delivery"
-                    ? `Entrega — ${order.neighborhood_name ?? ""}`
-                    : "Retirada no local"}{" "}
-                  ·{" "}
-                  {order.payment_method === "pix"
-                    ? "Pix"
-                    : order.payment_method === "cash"
-                      ? "Dinheiro"
-                      : "Cartão"}
-                </span>
-
-                <span className="font-bold text-stone-900">
-                  {formatCurrency(order.total)}
-                </span>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-stone-50 p-3">
-                <div>
-                  <p className="text-sm font-semibold text-stone-800">
-                    Pagamento
-                  </p>
-
-                  <p className="text-xs text-stone-500">
-                    {order.payment_method === "pix"
-                      ? "Pagamento via Pix"
-                      : order.payment_method === "cash"
-                        ? "Pagamento em dinheiro"
-                        : "Pagamento com cartão"}
-                  </p>
-                </div>
-
-                <PaymentStatusSelect
-                  orderId={order.id}
-                  status={order.payment_status}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
+        <KanbanBoard initialOrders={orders} />
       )}
     </div>
   );

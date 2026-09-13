@@ -1,14 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ShoppingBag } from "lucide-react";
 import { useCarrinho } from "@/lib/carrinho/contexto";
 import { formatCurrency, pluralize } from "@/lib/utils";
 
+// Rotas onde já existe um CTA "Finalizar pedido" — a barra flutuante só cobriria o botão principal.
+const ROTAS_OCULTAS = new Set(["/carrinho", "/checkout"]);
+
 export function CarrinhoBar() {
+  const pathname = usePathname();
   const { totalItens, subtotal, isHidratado } = useCarrinho();
 
   if (!isHidratado || totalItens === 0) return null;
+  if (pathname && ROTAS_OCULTAS.has(pathname)) return null;
 
   return (
     <div className="animate-fade-up fixed inset-x-0 bottom-0 z-40 p-3">

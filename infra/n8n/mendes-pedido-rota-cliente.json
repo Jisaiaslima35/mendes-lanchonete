@@ -1,0 +1,140 @@
+{
+  "id": "65bf6eb1-b8ee-4b00-b784-958abc6d2f05",
+  "name": "Mendes - Pedido em Rota",
+  "description": "Cliente recebe WhatsApp quando o pedido é marcado como 'saiu pra entrega'. Dispara via Evolution API.",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mendes-dispatch-223f1a81",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ad22f216-873f-4798-9bd2-0985b8b36f04",
+      "name": "Mendes Dispatch Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        0
+      ],
+      "webhookId": "7020f446-35d3-40be-80ef-959cfa2b4b49"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const o = $input.item.json.body || $input.item.json;\n\nconst text = `🛵💨 Olá, ${o.customer_name || 'cliente'}!\\n\\nSeu pedido ${o.order_id || '#'} acabou de sair para entrega e está a caminho do seu endereço:\\n📍 ${o.delivery_address || 'Endereço não informado'}\\n\\nLogo o entregador chega aí! Obrigado pela preferência. 🍔`;\n\nreturn [{ json: { number: o.customer_phone, text, order_id: o.order_id } }];\n"
+      },
+      "id": "b09ff8ac-fcac-4032-a4ec-8938ae5fd500",
+      "name": "Formatar Mensagem Cliente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://evo.automacaojs.us/message/sendText/automacaojs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "REDACTED_USE_N8N_CREDENTIALS"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": {{ JSON.stringify($json.number) }},\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"delay\": 1200\n}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "469d64d6-7346-4b84-ae8f-8b05c912255a",
+      "name": "Enviar WhatsApp Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -16,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"order_id\": {{ JSON.stringify($json.order_id) }}\n}"
+      },
+      "id": "db2a15e5-4b53-469c-a69b-d5ddb505b156",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Mendes Dispatch Webhook": {
+      "main": [
+        [
+          {
+            "node": "Formatar Mensagem Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Mensagem Cliente": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp Cliente",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "babc02fc-bf1a-4a74-8cb1-8cc79655796e",
+  "triggerCount": 1,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "mendes-cardapio-2026"
+  },
+  "isArchived": false,
+  "versionCounter": 1,
+  "activeVersionId": null,
+  "nodeGroups": []
+}

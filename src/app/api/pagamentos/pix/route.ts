@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Payment } from "mercadopago";
-import { mercadoPago } from "@/lib/mercadopago";
+import { getMercadoPago } from "@/lib/mercadopago";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
 export async function POST(request: Request) {
@@ -9,9 +9,9 @@ export async function POST(request: Request) {
 
     const { orderId, amount, description, payer } = body;
 
-    if (!orderId || !payer?.email) {
+    if (!orderId) {
       return NextResponse.json(
-        { error: "Dados do pagamento incompletos." },
+        { error: "orderId é obrigatório." },
         { status: 400 },
       );
     }
@@ -38,18 +38,41 @@ export async function POST(request: Request) {
       );
     }
 
+    // Fallbacks para não rejeitar o Pix quando o cliente não preencher tudo.
+    // Em produção o MP exige email + CPF válidos para emitir o QR.
+    const fallbackEmail =
+      process.env.MP_DEFAULT_PAYER_EMAIL || "cliente@automacaojs.us";
+    const fallbackCpf = process.env.MP_DEFAULT_PAYER_CPF || "12345678909";
+    const notificationUrl =
+      process.env.MP_NOTIFICATION_URL ||
+      `${
+        process.env.NEXT_PUBLIC_SITE_URL || "https://mendes-teste.automacaojs.us"
+      }/api/webhooks/mercadopago`;
+
+    const payerEmail = payer?.email?.trim() || fallbackEmail;
+    const payerCpf = (payer?.cpf || fallbackCpf).replace(/\D/g, "");
+
+    const mercadoPago = getMercadoPago();
     const payment = new Payment(mercadoPago);
+
+    // Garante 2 casas decimais que o gateway exige (1 vira 1.00).
+    const amountNumber = Number(Number(order.total).toFixed(2));
 
     const result = await payment.create({
       body: {
-        transaction_amount: Number(order.total),
+        transaction_amount: amountNumber,
         description: description || `Pedido #${order.id}`,
         payment_method_id: "pix",
         payer: {
-          email: payer.email,
-          first_name: payer.firstName || "Cliente",
-          last_name: payer.lastName || "",
+          email: payerEmail,
+          first_name: payer?.firstName || "Cliente",
+          last_name: payer?.lastName || "",
+          identification: {
+            type: "CPF",
+            number: payerCpf,
+          },
         },
+        notification_url: notificationUrl,
         external_reference: order.id,
       },
     });
@@ -66,15 +89,15 @@ export async function POST(request: Request) {
     }
 
     await supabase
-  .from("orders")
-  .update({
-    payment_provider: "mercadopago",
-    payment_transaction_id: paymentId,
-    pix_qr_code: pixData.qr_code,
-    pix_qr_code_base64: pixData.qr_code_base64,
-    pix_ticket_url: pixData.ticket_url,
-  })
-  .eq("id", order.id);
+      .from("orders")
+      .update({
+        payment_provider: "mercadopago",
+        payment_transaction_id: paymentId,
+        pix_qr_code: pixData.qr_code,
+        pix_qr_code_base64: pixData.qr_code_base64,
+        pix_ticket_url: pixData.ticket_url,
+      })
+      .eq("id", order.id);
 
     return NextResponse.json({
       paymentId,
