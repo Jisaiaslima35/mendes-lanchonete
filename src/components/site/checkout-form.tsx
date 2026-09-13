@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { useCarrinho } from "@/lib/carrinho/contexto";
 import { submitCheckout } from "@/lib/actions/checkout";
 import { resolveDeliveryFee, cartTotal } from "@/lib/precos";
@@ -9,6 +10,21 @@ import { formatCurrency, formatPhone, formatZip, onlyDigits } from "@/lib/utils"
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea, FieldGroup, FieldError } from "@/components/ui/field";
 import type { Neighborhood, Settings } from "@/types/database";
+
+type DeliveryQuoteClient = {
+  ok: boolean;
+  source: "distance" | "neighborhood" | "fallback";
+  address: {
+    cep: string;
+    logradouro: string;
+    bairro: string;
+    cidade: string;
+    uf: string;
+  } | null;
+  distance_km: number | null;
+  delivery_fee: number;
+  reason?: string;
+};
 
 export function CheckoutForm({
   settings,
@@ -42,9 +58,93 @@ export function CheckoutForm({
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
+  // === Cálculo de frete por distância (Haversine) ===
+  // Preenchido ao sair do campo CEP (8 dígitos). Volumoso porque
+  // precisa disparar o fetch quando o cara terminar de digitar.
+  const [quote, setQuote] = useState<DeliveryQuoteClient | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const quoteAbortRef = useRef<AbortController | null>(null);
+
+  // Cidade/UF exibidas no resumo (NÃO vão pro pedido — só pra conveniência).
+  const [cityDisplay, setCityDisplay] = useState<string | null>(null);
+
+  // Dispara o lookup quando o CEP atinge 8 dígitos. Não dispara ao montar.
+  useEffect(() => {
+    if (fulfillment !== "delivery") return;
+    const cepDigits = onlyDigits(zip);
+    if (cepDigits.length !== 8) {
+      // CEP incompleto → reseta tudo que veio de lookup anterior.
+      setQuote(null);
+      setQuoteError(null);
+      setCityDisplay(null);
+      return;
+    }
+
+    setQuoteLoading(true);
+    setQuoteError(null);
+
+    quoteAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    quoteAbortRef.current = ctrl;
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/delivery/quote?cep=${encodeURIComponent(cepDigits)}`,
+          { signal: ctrl.signal, cache: "no-store" },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as DeliveryQuoteClient;
+        if (ctrl.signal.aborted) return;
+        setQuote(data);
+        // Auto-preencher rua/bairro se o cliente deixou vazio
+        // (não sobrescreve se ele já digitou algo — usa fallback via flag).
+        if (data.address?.logradouro && !street) setStreet(data.address.logradouro);
+        if (data.address?.bairro && !neighborhoodId) {
+          // tenta casar com um bairro do <select>
+          const match = neighborhoods.find(
+            (n) => n.name.trim().toLowerCase() === data.address!.bairro.trim().toLowerCase(),
+          );
+          if (match) setNeighborhoodId(match.id);
+        }
+        if (data.address?.cidade) setCityDisplay(`${data.address.cidade}/${data.address.uf}`);
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        setQuote(null);
+        setQuoteError(
+          err instanceof Error ? err.message : "Falha ao calcular o frete. Usaremos taxa padrão.",
+        );
+      } finally {
+        if (!ctrl.signal.aborted) setQuoteLoading(false);
+      }
+    }, 350); // debounce — espera o cara parar de digitar
+
+    return () => clearTimeout(timer);
+    // não precisamos re-rodar se `street`/`neighborhoodId` mudarem — só CEP e modo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zip, fulfillment]);
+
   const selectedNeighborhood = neighborhoods.find((n) => n.id === neighborhoodId) ?? null;
+
+  // === Regra de preço do frete (Mendes v1) ===
+  //   1. CEP válido + lookup OK → usa `delivery_fee` da quote (cap R$4 já aplicado)
+  //   2. CEP completo mas lookup caiu em fallback → usa o `delivery_fee` retornado
+  //      (R$3, ou seja o que o servidor decidir)
+  //   3. CEP vazio/incompleto → tabela do bairro (legado)
+  const fallbackDeliveryFee = resolveDeliveryFee(
+    selectedNeighborhood,
+    settings,
+    subtotal,
+  );
+  const cepReady = fulfillment === "delivery" && onlyDigits(zip).length === 8;
+  const quoteApplies = cepReady && quote != null;
   const deliveryFee =
-    fulfillment === "delivery" ? resolveDeliveryFee(selectedNeighborhood, settings, subtotal) : 0;
+    fulfillment === "delivery"
+      ? quoteApplies
+        ? quote.delivery_fee
+        : fallbackDeliveryFee
+      : 0;
   const total = useMemo(
     () => cartTotal({ subtotal, deliveryFee, discount: 0 }),
     [subtotal, deliveryFee],
@@ -213,6 +313,9 @@ router.push(`/pedido/${result.data.publicToken}`);
               value={formatZip(zip)}
               onChange={(e) => setZip(onlyDigits(e.target.value))}
             />
+            <p className="text-xs text-stone-500">
+              Ao informar o CEP, calculamos o frete com base na distância. Teto: R$ 4,00.
+            </p>
           </FieldGroup>
           <div className="grid grid-cols-3 gap-3">
             <FieldGroup className="col-span-2">
@@ -337,10 +440,26 @@ router.push(`/pedido/${result.data.publicToken}`);
           <span>{formatCurrency(subtotal)}</span>
         </div>
         {fulfillment === "delivery" && (
-          <div className="flex justify-between text-sm text-stone-600">
-            <span>Entrega</span>
-            <span>{deliveryFee > 0 ? formatCurrency(deliveryFee) : "Grátis"}</span>
+          <div className="flex items-center justify-between text-sm text-stone-600">
+            <span>
+              Entrega
+              {quoteApplies && quote?.ok && quote.distance_km != null && (
+                <span className="ml-1 text-xs text-stone-500">
+                  ({quote.distance_km.toFixed(1)} km)
+                </span>
+              )}
+            </span>
+            <span className="inline-flex items-center gap-2">
+              {quoteLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-stone-400" />}
+              {deliveryFee > 0 ? formatCurrency(deliveryFee) : "Grátis"}
+            </span>
           </div>
+        )}
+        {fulfillment === "delivery" && cityDisplay && (
+          <p className="text-xs text-stone-500">Entregando em {cityDisplay}</p>
+        )}
+        {fulfillment === "delivery" && quoteError && (
+          <p className="text-xs text-amber-700">{quoteError}</p>
         )}
         <div className="flex justify-between pt-1 font-bold text-brand-900">
           <span>Total</span>

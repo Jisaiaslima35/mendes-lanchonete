@@ -1,5 +1,10 @@
 import { round2 } from "@/lib/utils";
+import { calcDeliveryFeeByDistance as calcDeliveryFeeByDistanceImpl } from "@/lib/delivery";
 import type { Neighborhood, Product, Promotion, Settings } from "@/types/database";
+
+// Re-export pra checkout-form.tsx (client) e checkout.ts (server) continuarem
+// importando de um lugar único. O cap de R$4 já é aplicado dentro da função.
+export const calcDeliveryFeeByDistance = calcDeliveryFeeByDistanceImpl;
 
 export type PricedOption = {
   id: string;
@@ -40,6 +45,10 @@ export function itemsSubtotal(items: PricedCartItem[]) {
 /**
  * Taxa de entrega considerando o bairro escolhido e o limiar de frete grátis.
  * Prioridade: limiar do bairro > limiar global das configurações.
+ *
+ * OBS: usado como FALLBACK quando o cálculo por distância via CEP não está
+ *      disponível (ex.: bairro sem CEP retornado). A regra principal do Mendes
+ *      v1 é `calcDeliveryFeeByDistance` em lib/delivery.ts.
  */
 export function resolveDeliveryFee(
   neighborhood: Pick<Neighborhood, "delivery_fee" | "free_delivery_threshold"> | null,

@@ -55,33 +55,28 @@ export default async function HomePage() {
     <div className="space-y-10">
       {/* Hero */}
       <section className="relative overflow-hidden rounded-3xl text-cream-50 shadow-xl shadow-brand-900/15">
-        {settings.banner_url ? (
-          <div className="absolute inset-0">
-            <Image
-              src={settings.banner_url}
-              alt=""
-              fill
-              priority
-              className="object-cover"
-            />
-            <div className="absolute inset-0 bg-linear-to-t from-brand-900/95 via-brand-900/60 to-brand-900/20" />
-          </div>
-        ) : (
-          <div
-            className="bg-dot-pattern absolute inset-0 bg-linear-to-br from-brand-700 via-brand-800 to-tomato-800"
-            aria-hidden
-          >
-            <div className="absolute -left-16 -top-16 h-64 w-64 rounded-full bg-accent-400/30 blur-3xl" />
-            <div className="absolute right-0 top-1/3 h-48 w-48 rounded-full bg-tomato-400/25 blur-3xl" />
-            <div className="absolute -bottom-16 left-1/4 h-56 w-56 rounded-full bg-brand-300/20 blur-3xl" />
-          </div>
-        )}
+        {/* Foto de fundo de alta resolução (Unsplash) — banner_url do banco sobrescreve se setado */}
+        <div className="absolute inset-0">
+          <Image
+            src={
+              settings.banner_url ||
+              "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1600&q=80"
+            }
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover object-center"
+          />
+          {/* Overlay escuro pra contraste perfeito do texto (esquerda forte → direita leve) */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/60 to-black/30" />
+        </div>
 
         <div className="relative z-10 space-y-4 px-5 py-10">
-          <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-white drop-shadow-sm sm:text-3xl">
+          <h1 className="text-2xl font-black leading-tight tracking-tight text-white drop-shadow-md md:text-4xl">
             {settings.business_name}
           </h1>
-          <p className="max-w-md text-sm text-cream-100/90 sm:text-base">
+          <p className="max-w-md text-sm text-stone-200 drop-shadow-sm sm:text-base">
             Sabor de padaria artesanal e lanches feitos na hora. Peça pelo
             cardápio digital.
           </p>
@@ -89,7 +84,7 @@ export default async function HomePage() {
           <div className="flex flex-wrap gap-2 pt-1">
             <Badge
               tone="neutral"
-              className="gap-1.5 bg-white/15 text-white backdrop-blur-sm"
+              className="gap-1.5 border border-white/10 bg-black/40 text-white backdrop-blur-sm"
             >
               <Clock className="h-3.5 w-3.5" aria-hidden />{" "}
               {todayHoursLabel(hours)}
@@ -97,7 +92,7 @@ export default async function HomePage() {
             {settings.accepts_delivery && (
               <Badge
                 tone="neutral"
-                className="gap-1.5 bg-white/15 text-white backdrop-blur-sm"
+                className="gap-1.5 border border-white/10 bg-black/40 text-white backdrop-blur-sm"
               >
                 <Bike className="h-3.5 w-3.5" aria-hidden /> Entrega ~
                 {settings.avg_delivery_minutes} min
@@ -106,7 +101,7 @@ export default async function HomePage() {
             {settings.accepts_pickup && (
               <Badge
                 tone="neutral"
-                className="gap-1.5 bg-white/15 text-white backdrop-blur-sm"
+                className="gap-1.5 border border-white/10 bg-black/40 text-white backdrop-blur-sm"
               >
                 <Store className="h-3.5 w-3.5" aria-hidden /> Retirada ~
                 {settings.avg_pickup_minutes} min
@@ -115,7 +110,7 @@ export default async function HomePage() {
           </div>
 
           {formasPagamento.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-cream-100/80">
+            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-stone-200">
               <span>Aceitamos:</span>
               {formasPagamento.map(({ label, icon: Icon }) => (
                 <span key={label} className="flex items-center gap-1">
@@ -134,7 +129,7 @@ export default async function HomePage() {
               <Button
                 variant="secondary"
                 size="lg"
-                className="border border-white/20 bg-white/95 text-brand-800 hover:bg-white"
+                className="border border-white/30 bg-white text-brand-800 shadow-lg shadow-black/30 hover:bg-stone-100"
               >
                 Peça agora
                 <ArrowRight className="h-4 w-4" aria-hidden />

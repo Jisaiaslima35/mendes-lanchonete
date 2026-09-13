@@ -12,6 +12,7 @@ import {
   resolveDiscount,
   type PricedCartItem,
 } from "@/lib/precos";
+import { quoteDelivery, readStoreLocationFromEnv, normalizeCep } from "@/lib/delivery";
 import { buildWhatsAppMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
 import { buildOrderPayload, sendOrderToN8N } from "@/lib/n8n";
 import { actionError, actionOk, logError, toUserMessage, type ActionResult } from "@/lib/errors";
@@ -161,6 +162,8 @@ export async function submitCheckout(input: CheckoutInput): Promise<ActionResult
     }
 
     let deliveryFee = 0;
+    let deliverySource: "distance" | "neighborhood" | "none" = "none";
+    let deliveryDistanceKm: number | null = null;
     let neighborhoodName: string | null = null;
     let neighborhoodId: string | null = null;
 
@@ -179,9 +182,42 @@ export async function submitCheckout(input: CheckoutInput): Promise<ActionResult
           `Pedido mínimo para este bairro é de R$ ${neighborhood.min_order_value.toFixed(2).replace(".", ",")}.`,
         );
       }
-      deliveryFee = resolveDeliveryFee(neighborhood, settings as Settings, subtotal);
       neighborhoodName = neighborhood.name;
       neighborhoodId = neighborhood.id;
+
+      // Regra principal Mendes v1: frete por distância (Haversine) a partir
+      // do CEP de entrega. Teto R$4, fallback R$3. Se toda a cadeia de rede
+      // (ViaCEP/Nominatim/Store envs) falhar, cai pra tabela por bairro.
+      const cep = normalizeCep(data.address?.zip ?? "");
+      let distanceComputed = false;
+      if (cep.length === 8) {
+        try {
+          const store = readStoreLocationFromEnv();
+          const quote = await quoteDelivery({ cep, store });
+          if (quote.ok) {
+            deliveryFee = quote.delivery_fee;
+            deliverySource = "distance";
+            deliveryDistanceKm = quote.distance_km;
+            distanceComputed = true;
+          } else if (quote.source === "fallback" && quote.delivery_fee > 0) {
+            // Fallback explícito (CEP achado mas sem geocoding,
+            // ou store_unconfigured) — usa o valor que veio com a quote.
+            deliveryFee = quote.delivery_fee;
+            deliverySource = "neighborhood";
+            logError(
+              "checkout.delivery_distance_fallback",
+              new Error(`reason=${quote.reason ?? "unknown"}`),
+            );
+          }
+        } catch (err) {
+          logError("checkout.delivery_distance_error", err);
+        }
+      }
+
+      if (!distanceComputed) {
+        deliveryFee = resolveDeliveryFee(neighborhood, settings as Settings, subtotal);
+        deliverySource = "neighborhood";
+      }
     }
 
     let discount = 0;
