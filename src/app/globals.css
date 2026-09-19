@@ -157,3 +157,48 @@ body {
   background-image: radial-gradient(circle, rgba(255, 255, 255, 0.14) 1px, transparent 1.6px);
   background-size: 20px 20px;
 }
+
+/* ============================================================================
+ * Print helpers — usados pelo dashboard /admin ao exportar PDF via navegador.
+ * .no-print esconde (sidebar, botões, navegação) e .print-only aparece só
+ * quando o usuário aciona Ctrl+P / window.print().
+ * ============================================================================ */
+
+@media print {
+  /* Fundo branco e tinta preta pra economizar toner e ficar legível. */
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Esconde navegação, sidebars e CTAs não-imprimíveis. */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Mostra seções que existem só pra versão impressa. */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Tabelas impressas ocupam a página toda. */
+  table {
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  /* Sem sombras, sem cantos arredondados (caro pro toner). */
+  * {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Reset do grid do painel admin: joga a sidebar pra fora, mantém só main. */
+  .print\:grid-cols-1 {
+    grid-template-columns: 1fr !important;
+  }
+}
+

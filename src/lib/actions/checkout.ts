@@ -12,10 +12,12 @@ import {
   resolveDiscount,
   type PricedCartItem,
 } from "@/lib/precos";
-import { quoteDelivery, readStoreLocationFromEnv, normalizeCep } from "@/lib/delivery";
+import { quoteDelivery, readStoreLocationForTenant, FALLBACK_FEE, normalizeCep } from "@/lib/delivery";
 import { buildWhatsAppMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
 import { buildOrderPayload, sendOrderToN8N } from "@/lib/n8n";
 import { actionError, actionOk, logError, toUserMessage, type ActionResult } from "@/lib/errors";
+import { buildPixBRCode } from "@/lib/pix/brcode";
+import { pixBRCodeToBase64 } from "@/lib/pix/qr";
 import type { BusinessHour, Settings } from "@/types/database";
 
 type CheckoutResult = {
@@ -42,11 +44,13 @@ export async function submitCheckout(input: CheckoutInput): Promise<ActionResult
     const tenantId = await getCurrentTenantId();
     const db = createAdminSupabase();
 
-    const [{ data: settings }, { data: hours }] = await Promise.all([
+    const [{ data: settings }, { data: hours }, { data: tenant }] = await Promise.all([
       db.from("settings").select("*").eq("tenant_id", tenantId).single(),
       db.from("business_hours").select("*").eq("tenant_id", tenantId),
+      db.from("tenants").select("id, slug, evolution_instance_name").eq("id", tenantId).single(),
     ]);
     if (!settings) return actionError("Loja não configurada.");
+    if (!tenant) return actionError("Tenant não encontrado.");
 
     const businessHours = (hours ?? []) as BusinessHour[];
     if (!isStoreOpen(businessHours, (settings as Settings).manual_closed)) {
@@ -59,6 +63,7 @@ export async function submitCheckout(input: CheckoutInput): Promise<ActionResult
     if (data.fulfillment === "pickup" && !(settings as Settings).accepts_pickup) {
       return actionError("No momento não estamos aceitando retirada no local.");
     }
+    // Mesa sempre é aceita — só depende do cliente escanear o QR Code.
 
     const productIds = [...new Set(data.items.map((i) => i.productId))];
     const optionIds = [...new Set(data.items.flatMap((i) => i.optionIds))];
@@ -164,49 +169,77 @@ export async function submitCheckout(input: CheckoutInput): Promise<ActionResult
     let deliveryFee = 0;
     let deliverySource: "distance" | "neighborhood" | "none" = "none";
     let deliveryDistanceKm: number | null = null;
+    // Bairro é texto livre agora — gravamos o que o cliente digitou.
+    // Mas tentamos casar com a tabela `neighborhoods` pra puxar a taxa
+    // de entrega cadastrada quando o cálculo por distância falha.
     let neighborhoodName: string | null = null;
     let neighborhoodId: string | null = null;
+    let matchedNeighborhood: {
+      id: string;
+      name: string;
+      delivery_fee: number;
+      min_order_value: number;
+      free_delivery_threshold: number | null;
+    } | null = null;
 
     if (data.fulfillment === "delivery") {
-      const { data: neighborhood } = await db
+      neighborhoodName = data.address!.district.trim();
+      const districtLower = neighborhoodName.toLowerCase();
+      const { data: candidateRows } = await db
         .from("neighborhoods")
-        .select("*")
-        .eq("id", data.address!.neighborhoodId)
+        .select("id, name, delivery_fee, min_order_value, free_delivery_threshold")
         .eq("tenant_id", tenantId)
-        .eq("is_active", true)
-        .single();
-
-      if (!neighborhood) return actionError("Bairro não atendido.");
-      if (subtotal < neighborhood.min_order_value) {
-        return actionError(
-          `Pedido mínimo para este bairro é de R$ ${neighborhood.min_order_value.toFixed(2).replace(".", ",")}.`,
-        );
+        .eq("is_active", true);
+      matchedNeighborhood =
+        (candidateRows ?? []).find(
+          (n) => n.name.trim().toLowerCase() === districtLower,
+        ) ?? null;
+      if (matchedNeighborhood) {
+        neighborhoodId = matchedNeighborhood.id;
+        // min_order_value do bairro só bloqueia se for maior que o mínimo
+        // global. Se for menor/igual, aceita sem aviso.
+        const globalMin = (settings as Settings).min_order_value;
+        const effectiveMin = Math.max(globalMin, matchedNeighborhood.min_order_value ?? 0);
+        if (subtotal < effectiveMin && matchedNeighborhood.min_order_value > globalMin) {
+          return actionError(
+            `Pedido mínimo para este bairro é de R$ ${matchedNeighborhood.min_order_value.toFixed(2).replace(".", ",")}.`,
+          );
+        }
       }
-      neighborhoodName = neighborhood.name;
-      neighborhoodId = neighborhood.id;
 
       // Regra principal Mendes v1: frete por distância (Haversine) a partir
-      // do CEP de entrega. Teto R$4, fallback R$3. Se toda a cadeia de rede
-      // (ViaCEP/Nominatim/Store envs) falhar, cai pra tabela por bairro.
+      // do CEP de entrega. Teto R$4, fallback R$3. Origem do cálculo = as
+      // coordenadas PRÓPRIAS do tenant ativo (settings.store_lat/lng/cep),
+      // NÃO mais STORE_LAT/LNG do .env — cada loja usa SUA localização.
+      // Se toda a cadeia (ViaCEP/Nominatim/settings vazia) falhar, cai pra
+      // tabela por bairro (se casou) ou R$0.
       const cep = normalizeCep(data.address?.zip ?? "");
       let distanceComputed = false;
       if (cep.length === 8) {
         try {
-          const store = readStoreLocationFromEnv();
-          const quote = await quoteDelivery({ cep, store });
-          if (quote.ok) {
-            deliveryFee = quote.delivery_fee;
-            deliverySource = "distance";
-            deliveryDistanceKm = quote.distance_km;
-            distanceComputed = true;
-          } else if (quote.source === "fallback" && quote.delivery_fee > 0) {
-            // Fallback explícito (CEP achado mas sem geocoding,
-            // ou store_unconfigured) — usa o valor que veio com a quote.
-            deliveryFee = quote.delivery_fee;
-            deliverySource = "neighborhood";
+          const store = await readStoreLocationForTenant(db, tenantId);
+          if (store) {
+            const quote = await quoteDelivery({ cep, store });
+            if (quote.ok) {
+              deliveryFee = quote.delivery_fee;
+              deliverySource = "distance";
+              deliveryDistanceKm = quote.distance_km;
+              distanceComputed = true;
+            } else if (quote.source === "fallback" && quote.delivery_fee > 0) {
+              deliveryFee = quote.delivery_fee;
+              deliverySource = "neighborhood";
+              logError(
+                "checkout.delivery_distance_fallback",
+                new Error(`reason=${quote.reason ?? "unknown"}`),
+              );
+            }
+          } else {
+            // Tenant sem lat/lng/cep nas settings. Admin precisa preencher
+            // via /admin/configuracoes — enquanto isso, cai pra tabela
+            // por bairro ou R$0.
             logError(
-              "checkout.delivery_distance_fallback",
-              new Error(`reason=${quote.reason ?? "unknown"}`),
+              "checkout.delivery_store_unconfigured",
+              new Error(`tenant_id=${tenantId}`),
             );
           }
         } catch (err) {
@@ -215,7 +248,7 @@ export async function submitCheckout(input: CheckoutInput): Promise<ActionResult
       }
 
       if (!distanceComputed) {
-        deliveryFee = resolveDeliveryFee(neighborhood, settings as Settings, subtotal);
+        deliveryFee = resolveDeliveryFee(matchedNeighborhood, settings as Settings, subtotal);
         deliverySource = "neighborhood";
       }
     }
@@ -263,6 +296,7 @@ export async function submitCheckout(input: CheckoutInput): Promise<ActionResult
         customer_phone: data.customerPhone,
         customer_email: data.customerEmail,
         fulfillment: data.fulfillment,
+        mesa: data.fulfillment === "mesa" ? (data.mesa ?? null) : null,
         address_zip: data.address?.zip ?? null,
         address_street: data.address?.street ?? null,
         address_number: data.address?.number ?? null,
@@ -307,6 +341,55 @@ change_for: data.paymentMethod === "cash" ? (data.changeFor ?? null) : null,
     const { error: itemsError } = await db.from("order_items").insert(itemRows);
     if (itemsError) logError("checkout.insert_items", itemsError);
 
+    // Pix Manual (BR Code / EMVCo) — gera o payload local se a loja tiver chave
+    // Pix configurada + Pix Manual habilitado. Sem isso, cai no MP dinâmico via
+    // /api/pagamentos/pix e o webhook MP confirma depois. Migration
+    // 2026-09-18_pix_manual_brcode.sql.
+    let pixProvider: "mercadopago" | "manual" | null = null;
+    if (data.paymentMethod === "pix") {
+      const settingsRow = settings as unknown as Settings;
+      if (settingsRow.pix_manual_enabled && settingsRow.pix_key && settingsRow.pix_merchant_city) {
+        try {
+          const merchantName = settingsRow.pix_beneficiary || settingsRow.business_name;
+          const brcode = buildPixBRCode({
+            pixKey: settingsRow.pix_key,
+            merchantName,
+            merchantCity: settingsRow.pix_merchant_city,
+            amount: total,
+            txid: order.order_number.replace(/[^A-Za-z0-9]/g, "").slice(0, 25) || "***",
+          });
+          const qrBase64 = await pixBRCodeToBase64(brcode);
+          const { error: pixUpdateErr } = await db
+            .from("orders")
+            .update({
+              payment_provider: "manual",
+              pix_qr_code: brcode,
+              pix_qr_code_base64: qrBase64,
+            })
+            .eq("id", order.id);
+          if (pixUpdateErr) {
+            logError("checkout.pix_manual_update", pixUpdateErr);
+          } else {
+            pixProvider = "manual";
+            console.log("[pix] BR Code gerado", {
+              orderId: order.id,
+              tenantId,
+              txid: order.order_number,
+              amount: total,
+              brcodeLen: brcode.length,
+              qrBase64Len: qrBase64.length,
+            });
+          }
+        } catch (pixErr) {
+          // Falha ao gerar BR Code — cai pro fluxo MP. Não bloqueia o checkout.
+          logError("checkout.pix_manual_generate", pixErr);
+        }
+      } else {
+        // Pix Manual desligado OU sem chave configurada — fluxo MP dinâmico.
+        pixProvider = "mercadopago";
+      }
+    }
+
     if (customer) {
       await db
         .from("customers")
@@ -320,8 +403,19 @@ change_for: data.paymentMethod === "cash" ? (data.changeFor ?? null) : null,
 
     // Disparo fire-and-forget pro webhook do n8n em pedidos cash/card.
     // Pix tem seu próprio disparo dentro do /api/webhooks/mercadopago após approved.
+    // Mesa: AGORA dispara na criação também — dono precisa receber a comanda
+    //       pra começar a preparar. A supressão que vale pro MESA é só o link
+    //       wa.me de confirmação pro cliente (whatsappUrl = ""), porque ele já
+    //       tá sentado na mesa. A notificação "saiu pra entrega" segue sendo
+    //       enviada quando o admin mover pra coluna correspondente.
+    // Pix Manual: AGORA também dispara na criação — o lojista precisa receber
+    //             o pedido pra cruzar com o comprovante que o cliente manda
+    //             no WhatsApp. Lote 1 item 4 (migration 2026-09-18).
     // Não bloqueia o actionOk — erro do n8n é tratado dentro do helper.
-    if (data.paymentMethod !== "pix") {
+    const isPixManual = data.paymentMethod === "pix" && pixProvider === "manual";
+    if (data.paymentMethod !== "pix" || isPixManual) {
+      const tenantRow = tenant as unknown as { id: string; slug: string; evolution_instance_name: string | null };
+      const settingsRow = settings as unknown as Settings;
       void sendOrderToN8N(
         buildOrderPayload(
           order as unknown as Parameters<typeof buildOrderPayload>[0],
@@ -337,7 +431,13 @@ change_for: data.paymentMethod === "cash" ? (data.changeFor ?? null) : null,
             notes: ir.notes,
             line_total: ir.line_total,
             created_at: new Date().toISOString(),
-          })) as Parameters<typeof buildOrderPayload>[1],
+          })) as unknown as Parameters<typeof buildOrderPayload>[1],
+          {
+            tenant_id: tenantRow.id,
+            tenant_slug: tenantRow.slug,
+            evolution_instance_name: tenantRow.evolution_instance_name ?? null,
+            store_whatsapp: settingsRow.whatsapp_number ?? null,
+          },
         ),
       );
     }
@@ -367,7 +467,13 @@ change_for: data.paymentMethod === "cash" ? (data.changeFor ?? null) : null,
       notes: data.notes,
     });
 
-    const whatsappUrl = buildWhatsAppUrl((settings as Settings).whatsapp_number, message);
+    // Mesa: cliente já tá sentado — não enviamos link wa.me pra confirmar
+    // pedido (ele escaneou o QR da mesa e tá ali). Notificação sai quando o
+    // admin mover pra "Saiu p/ Entrega". whatsappUrl fica vazio.
+    const whatsappUrl =
+      data.fulfillment === "mesa"
+        ? ""
+        : buildWhatsAppUrl((settings as Settings).whatsapp_number, message);
 
     return actionOk({
   orderId: order.id,

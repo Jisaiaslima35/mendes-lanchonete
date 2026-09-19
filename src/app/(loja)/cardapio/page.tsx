@@ -17,7 +17,8 @@ export default async function CardapioPage({
     : categories;
 
   return (
-    <div className="space-y-8">
+    // scroll-smooth: links com âncora #slug descem com animação nativa.
+    <div className="scroll-smooth space-y-8">
       <h1 className="text-xl font-bold text-brand-900">Cardápio</h1>
 
       {!categoria && promoProducts.length > 0 && (

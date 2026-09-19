@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Payment } from "mercadopago";
 import { getMercadoPago } from "@/lib/mercadopago";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { resolveTenantOrigin } from "@/lib/tenant-host";
 
 export async function POST(request: Request) {
   try {
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
 
     const { data: order, error: orderError } = await supabase
       .from("orders")
-      .select("id, total, payment_method")
+      .select("id, total, payment_method, tenant_id")
       .eq("id", orderId)
       .single();
 
@@ -43,11 +44,19 @@ export async function POST(request: Request) {
     const fallbackEmail =
       process.env.MP_DEFAULT_PAYER_EMAIL || "cliente@automacaojs.us";
     const fallbackCpf = process.env.MP_DEFAULT_PAYER_CPF || "12345678909";
-    const notificationUrl =
-      process.env.MP_NOTIFICATION_URL ||
-      `${
-        process.env.NEXT_PUBLIC_SITE_URL || "https://mendes-teste.automacaojs.us"
-      }/api/webhooks/mercadopago`;
+
+    // notificationUrl deve apontar pro subdominio do tenant do pedido, nao
+    // pro NEXT_PUBLIC_SITE_URL estatico (que pode ser de outro tenant).
+    let notificationUrl = process.env.MP_NOTIFICATION_URL?.trim() ?? "";
+    if (!notificationUrl) {
+      const { data: tenant } = await supabase
+        .from("tenants")
+        .select("slug")
+        .eq("id", order.tenant_id)
+        .maybeSingle();
+      const origin = resolveTenantOrigin(request.headers.get("host"), tenant?.slug ?? "mendes");
+      notificationUrl = `${origin}/api/webhooks/mercadopago`;
+    }
 
     const payerEmail = payer?.email?.trim() || fallbackEmail;
     const payerCpf = (payer?.cpf || fallbackCpf).replace(/\D/g, "");

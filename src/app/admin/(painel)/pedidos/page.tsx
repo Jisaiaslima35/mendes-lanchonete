@@ -20,6 +20,7 @@ export default async function AdminPedidosPage() {
 
   // Pega até 150 pedidos abertos + concluídos recentes pra alimentar o Kanban.
   // Concluídos com mais de 24h ficam fora pra não poluir a coluna "Concluídos".
+  // eslint-disable-next-line react-hooks/purity
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   const { data } = await supabase
@@ -39,10 +40,21 @@ export default async function AdminPedidosPage() {
     customer_name: row.customer_name,
     neighborhood_name: row.neighborhood_name ?? null,
     fulfillment: row.fulfillment,
+    mesa: row.mesa ?? null,
     payment_method: row.payment_method,
     payment_status: row.payment_status,
+    payment_provider: (row as unknown as { payment_provider?: "mercadopago" | "manual" | null })
+      .payment_provider ?? null,
+    change_for: row.change_for ?? null,
     total: row.total,
     status: row.status,
+    notes: row.notes ?? null,
+    items: (row.order_items ?? []).map((it) => ({
+      id: it.id,
+      quantity: it.quantity,
+      product_name: it.product_name,
+      notes: it.notes ?? null,
+    })),
     items_summary: summarizeItems(row.order_items),
   }));
 

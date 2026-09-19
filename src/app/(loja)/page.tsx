@@ -1,30 +1,17 @@
 import Image from "next/image";
-import Link from "next/link";
-import {
-  Clock,
-  Bike,
-  Store,
-  ArrowRight,
-  Wallet,
-  Banknote,
-  QrCode,
-} from "lucide-react";
+import { PreserveMesaLink } from "@/components/site/preserve-mesa-link";
+import { ArrowRight } from "lucide-react";
 import {
   getBannerPromotions,
   getBestSellers,
-  getBusinessHours,
   getCategoriesWithProducts,
-  getSettings,
 } from "@/lib/queries/catalogo";
-import { todayHoursLabel } from "@/lib/horario";
 import { promotionTagLabel } from "@/lib/promocoes";
 import {
   ICONES_POR_CATEGORIA,
   ICONE_CATEGORIA_PADRAO,
 } from "@/lib/categoria-icones";
 import { ProdutoCard } from "@/components/site/produto-card";
-import { BotaoWhatsApp } from "@/components/site/botao-whatsapp";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 const CORES_ICONE_CATEGORIA = [
@@ -35,109 +22,14 @@ const CORES_ICONE_CATEGORIA = [
 ];
 
 export default async function HomePage() {
-  const [settings, hours, categories, bestSellers, banners] = await Promise.all(
-    [
-      getSettings(),
-      getBusinessHours(),
-      getCategoriesWithProducts(),
-      getBestSellers(),
-      getBannerPromotions(),
-    ],
-  );
-
-  const formasPagamento = [
-    settings.payment_pix && { label: "Pix", icon: QrCode },
-    settings.payment_cash && { label: "Dinheiro", icon: Banknote },
-    settings.payment_card && { label: "Cartão", icon: Wallet },
-  ].filter((v): v is { label: string; icon: typeof QrCode } => Boolean(v));
+  const [categories, bestSellers, banners] = await Promise.all([
+    getCategoriesWithProducts(),
+    getBestSellers(),
+    getBannerPromotions(),
+  ]);
 
   return (
     <div className="space-y-10">
-      {/* Hero */}
-      <section className="relative overflow-hidden rounded-3xl text-cream-50 shadow-xl shadow-brand-900/15">
-        {/* Foto de fundo de alta resolução (Unsplash) — banner_url do banco sobrescreve se setado */}
-        <div className="absolute inset-0">
-          <Image
-            src={
-              settings.banner_url ||
-              "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1600&q=80"
-            }
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="object-cover object-center"
-          />
-          {/* Overlay escuro pra contraste perfeito do texto (esquerda forte → direita leve) */}
-          <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/60 to-black/30" />
-        </div>
-
-        <div className="relative z-10 space-y-4 px-5 py-10">
-          <h1 className="text-2xl font-black leading-tight tracking-tight text-white drop-shadow-md md:text-4xl">
-            {settings.business_name}
-          </h1>
-          <p className="max-w-md text-sm text-stone-200 drop-shadow-sm sm:text-base">
-            Sabor de padaria artesanal e lanches feitos na hora. Peça pelo
-            cardápio digital.
-          </p>
-
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Badge
-              tone="neutral"
-              className="gap-1.5 border border-white/10 bg-black/40 text-white backdrop-blur-sm"
-            >
-              <Clock className="h-3.5 w-3.5" aria-hidden />{" "}
-              {todayHoursLabel(hours)}
-            </Badge>
-            {settings.accepts_delivery && (
-              <Badge
-                tone="neutral"
-                className="gap-1.5 border border-white/10 bg-black/40 text-white backdrop-blur-sm"
-              >
-                <Bike className="h-3.5 w-3.5" aria-hidden /> Entrega ~
-                {settings.avg_delivery_minutes} min
-              </Badge>
-            )}
-            {settings.accepts_pickup && (
-              <Badge
-                tone="neutral"
-                className="gap-1.5 border border-white/10 bg-black/40 text-white backdrop-blur-sm"
-              >
-                <Store className="h-3.5 w-3.5" aria-hidden /> Retirada ~
-                {settings.avg_pickup_minutes} min
-              </Badge>
-            )}
-          </div>
-
-          {formasPagamento.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-stone-200">
-              <span>Aceitamos:</span>
-              {formasPagamento.map(({ label, icon: Icon }) => (
-                <span key={label} className="flex items-center gap-1">
-                  <Icon className="h-3.5 w-3.5" aria-hidden /> {label}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <div className="flex flex-wrap gap-3 pt-3">
-            <BotaoWhatsApp
-              numero={settings.whatsapp_number}
-              mensagem={`Olá! Vim pelo site da ${settings.business_name}.`}
-            />
-            <Link href="/cardapio">
-              <Button
-                variant="secondary"
-                size="lg"
-                className="border border-white/30 bg-white text-brand-800 shadow-lg shadow-black/30 hover:bg-stone-100"
-              >
-                Peça agora
-                <ArrowRight className="h-4 w-4" aria-hidden />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </section>
 
       {/* Promoções — logo após o hero, acima da dobra */}
       {banners.length > 0 && (
@@ -196,7 +88,7 @@ export default async function HomePage() {
               ICONES_POR_CATEGORIA[cat.slug] ?? ICONE_CATEGORIA_PADRAO;
             const cor = CORES_ICONE_CATEGORIA[i % CORES_ICONE_CATEGORIA.length];
             return (
-              <Link
+              <PreserveMesaLink
                 key={cat.id}
                 href={`/cardapio?categoria=${cat.slug}`}
                 className="flex min-w-[104px] shrink-0 snap-start flex-col items-center gap-2 rounded-2xl border border-brand-900/10 bg-white p-4 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md sm:min-w-0"
@@ -213,7 +105,7 @@ export default async function HomePage() {
                   {cat.products.length}{" "}
                   {cat.products.length === 1 ? "item" : "itens"}
                 </span>
-              </Link>
+              </PreserveMesaLink>
             );
           })}
         </div>
@@ -224,12 +116,12 @@ export default async function HomePage() {
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-brand-900">Mais vendidos</h2>
-            <Link
+            <PreserveMesaLink
               href="/cardapio"
               className="text-sm font-medium text-brand-700 hover:text-brand-800"
             >
               Ver cardápio
-            </Link>
+            </PreserveMesaLink>
           </div>
           <div className="flex snap-x gap-3 overflow-x-auto pb-1">
             {bestSellers.map((product, i) => (
@@ -251,7 +143,7 @@ export default async function HomePage() {
         <p className="mt-1 text-sm text-cream-100/90">
           Peça agora e receba fresquinho, na hora.
         </p>
-        <Link href="/cardapio" className="mt-4 inline-block">
+        <PreserveMesaLink href="/cardapio" className="mt-4 inline-block">
           <Button
             variant="secondary"
             size="lg"
@@ -260,7 +152,7 @@ export default async function HomePage() {
             Peça agora
             <ArrowRight className="h-4 w-4" aria-hidden />
           </Button>
-        </Link>
+        </PreserveMesaLink>
       </section>
     </div>
   );

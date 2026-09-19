@@ -33,6 +33,13 @@ export const publicEnv = {
     "http://localhost:3000",
   ).replace(/\/$/, ""),
   tenantSlug: optional(process.env.NEXT_PUBLIC_TENANT_SLUG, "mendes"),
+  /**
+   * Root domain do SaaS multi-tenant. Subdominios deste root (ex:
+   * `mendes-teste.automacaojs.us`, `formiga.automacaojs.us`) sao
+   * resolvidos como tenants diferentes pelo `src/proxy.ts`. Configuravel
+   * via `NEXT_PUBLIC_ROOT_DOMAIN` no env. Default `automacaojs.us`.
+   */
+  rootDomain: optional(process.env.NEXT_PUBLIC_ROOT_DOMAIN, "automacaojs.us"),
 };
 
 /**

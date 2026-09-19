@@ -128,6 +128,44 @@ export const settingsSchema = z.object({
   payment_card: z.coerce.boolean(),
   pix_key: z.string().trim().max(140).optional().or(z.literal("")),
   pix_key_type: z.string().trim().max(20).optional().or(z.literal("")),
+  /**
+   * Lote 1 auditoria — campos adicionados em 2026-09-16_store_coords_pix.sql.
+   * Coordenadas próprias (isoladas por tenant) e dados extras do Pix
+   * (beneficiário + QR estático fallback + mensagem de recibo).
+   * Tudo opcional: se vazio, frete cai pra FALLBACK_FEE (R$3) e o checkout
+   * usa só a chave Pix dinâmica do MercadoPago.
+   */
+  store_lat: z.coerce
+    .number()
+    .min(-90, "Latitude deve estar entre -90 e 90.")
+    .max(90, "Latitude deve estar entre -90 e 90.")
+    .nullable()
+    .optional()
+    .or(z.literal("")),
+  store_lng: z.coerce
+    .number()
+    .min(-180, "Longitude deve estar entre -180 e 180.")
+    .max(180, "Longitude deve estar entre -180 e 180.")
+    .nullable()
+    .optional()
+    .or(z.literal("")),
+  store_cep: z
+    .string()
+    .trim()
+    .transform((v) => onlyDigits(v))
+    .refine((v) => v.length === 0 || v.length === 8, "CEP deve ter 8 dígitos.")
+    .optional()
+    .or(z.literal("")),
+  pix_beneficiary: z.string().trim().max(120).optional().or(z.literal("")),
+  pix_static_qr_base64: z.string().trim().max(500_000).optional().or(z.literal("")),
+  pix_receipt_message: z.string().trim().max(300).optional().or(z.literal("")),
+  /**
+   * Pix Manual (BR Code / EMVCo) — campos adicionados em
+   * 2026-09-18_pix_manual_brcode.sql. Quando `pix_manual_enabled = true` o checkout
+   * gera o payload BR Code no servidor (sem MercadoPago) e grava em `orders`.
+   */
+  pix_merchant_city: z.string().trim().max(80).optional().or(z.literal("")),
+  pix_manual_enabled: z.coerce.boolean().default(false),
   order_prefix: z.string().trim().max(10),
 });
 export type SettingsInput = z.infer<typeof settingsSchema>;
@@ -157,3 +195,73 @@ export const customerSchema = z.object({
   notes: z.string().trim().max(300).optional().or(z.literal("")),
 });
 export type CustomerInput = z.infer<typeof customerSchema>;
+
+/**
+ * Schema do form "Novo Estabelecimento" (/super-admin).
+ *
+ * Regras:
+ * - `slug` deve bater com o subdomain (sem o rootDomain): letras minusculas,
+ *   numeros e hifen. E usado como chave no roteamento por host
+ *   (`mendes-teste.automacaojs.us` -> slug `mendes-teste`).
+ * - `subdomain` eh o FQDN completo (ex: `formiga.automacaojs.us`). Pode
+ *   ficar vazio se o dono quiser configurar DNS depois.
+ * - `owner_phone` eh o WhatsApp do dono no formato wa.me (DDI+DDD+numero).
+ * - `seed_tables` / `seed_categories` controlam o que eh provisionado na
+ *   criacao (5 mesas ativas + 2 categorias padrao: "Lanches" + "Bebidas").
+ */
+export const tenantCreateSchema = z
+  .object({
+    name: z.string().trim().min(2, "Informe o nome.").max(80),
+    slug: z
+      .string()
+      .trim()
+      .min(2)
+      .max(80)
+      .regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/, "Use apenas letras minúsculas, números e hífen."),
+    subdomain: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .or(z.literal("")),
+    owner_phone: z
+      .string()
+      .trim()
+      .transform((v) => onlyDigits(v))
+      .refine(
+        (v) => v.length === 0 || (v.length >= 10 && v.length <= 13),
+        "WhatsApp inválido (DDI + DDD + número).",
+      )
+      .optional()
+      .or(z.literal("")),
+    owner_email: z
+      .string()
+      .trim()
+      .email("E-mail inválido.")
+      .max(120)
+      .optional()
+      .or(z.literal("")),
+    owner_password: z
+      .string()
+      .trim()
+      .min(6, "A senha deve ter pelo menos 6 caracteres.")
+      .max(100)
+      .optional()
+      .or(z.literal("")),
+    seed_tables: z.coerce.boolean().default(true),
+    seed_categories: z.coerce.boolean().default(true),
+  })
+  .superRefine((data, ctx) => {
+    if (data.subdomain && data.subdomain.length > 0) {
+      const sub = data.subdomain.toLowerCase();
+      const root = (process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "automacaojs.us").toLowerCase();
+      if (!sub.endsWith(`.${root}`)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["subdomain"],
+          message: `Subdomínio deve terminar com ".${root}".`,
+        });
+      }
+    }
+  });
+export type TenantCreateInput = z.infer<typeof tenantCreateSchema>;

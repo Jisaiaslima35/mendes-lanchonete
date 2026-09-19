@@ -15,6 +15,12 @@ export function PixPayment({
   pixQrCode,
   pixQrCodeBase64,
   pixTicketUrl,
+  pixBeneficiary,
+  pixReceiptMessage,
+  pixStaticQrBase64,
+  paymentProvider,
+  storeWhatsapp,
+  orderNumber,
 }: {
   token: string;
   pixKey?: string | null;
@@ -24,16 +30,37 @@ export function PixPayment({
   pixQrCode?: string | null;
   pixQrCodeBase64?: string | null;
   pixTicketUrl?: string | null;
+  /**
+   * Lote 1 auditoria — campos adicionados em 2026-09-16_store_coords_pix.sql.
+   * Vêm do `settings` do tenant ATIVO (cada loja tem seu próprio recebedor
+   * e QR estático fallback). Pix dinâmico do MP tem prioridade — só cai pra
+   * QR estático quando `pixQrCodeBase64` e `pixQrCode` estiverem nulos.
+   */
+  pixBeneficiary?: string | null;
+  pixReceiptMessage?: string | null;
+  pixStaticQrBase64?: string | null;
+  /**
+   * Pix Manual (BR Code / EMVCo) — adicionado em 2026-09-18_pix_manual_brcode.sql.
+   * Quando `paymentProvider === "manual"`, o cliente deve enviar o comprovante
+   * via WhatsApp e o admin confirma manualmente no Kanban.
+   */
+  paymentProvider?: "mercadopago" | "manual" | null;
+  /** WhatsApp da loja (settings.whatsapp_number) pra montar wa.me do botão. */
+  storeWhatsapp?: string | null;
+  /** Número do pedido (ex: "#0030") — usado na mensagem do WhatsApp. */
+  orderNumber?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState(paymentStatus);
+  const [prevPaymentStatus, setPrevPaymentStatus] = useState(paymentStatus);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
-  // Sincroniza estado local quando o server refresh propaga novo paymentStatus.
-  useEffect(() => {
+  // Sincroniza estado local quando o server refresh propaga novo paymentStatus (padrão React 19).
+  if (prevPaymentStatus !== paymentStatus) {
+    setPrevPaymentStatus(paymentStatus);
     setStatus(paymentStatus);
-  }, [paymentStatus]);
+  }
 
   // Polling curto (2s) enquanto Pix estiver pending. Quando o webhook do MP
   // chegar e virar "confirmed", a prop paymentStatus muda e o status local
@@ -171,8 +198,44 @@ export function PixPayment({
           </a>
         )}
 
+        {/* QR estático do tenant — fallback usado quando o Pix dinâmico do MP
+            não foi gerado (sandbox / MP fora / admin não configurou MercadoPago). */}
+        {!pixQrCode && !pixQrCodeBase64 && pixStaticQrBase64 && (
+          <div className="rounded-xl border border-stone-200 bg-white p-4">
+            <p className="mb-3 text-center text-sm font-semibold text-stone-700">
+              Escaneie o QR Code da loja para pagar
+            </p>
+
+            {/*
+              pixStaticQrBase64 pode vir com OU sem prefixo data:image/png;base64,
+              dependendo de como o admin colou no settings-form. Aceita os dois.
+            */}
+            <img
+              src={
+                pixStaticQrBase64.startsWith("data:")
+                  ? pixStaticQrBase64
+                  : `data:image/png;base64,${pixStaticQrBase64}`
+              }
+              alt="QR Code Pix estático da loja"
+              className="mx-auto h-56 w-56 rounded-lg border bg-white p-2"
+            />
+
+            {pixBeneficiary && (
+              <p className="mt-3 text-center text-xs text-stone-500">
+                Recebedor: <strong>{pixBeneficiary}</strong>
+              </p>
+            )}
+          </div>
+        )}
+
         {!pixQrCode && !pixQrCodeBase64 && pixKey && (
           <div>
+            {pixBeneficiary && (
+              <p className="mb-1 text-sm text-stone-600">
+                Recebedor: <strong>{pixBeneficiary}</strong>
+              </p>
+            )}
+
             <p className="text-sm text-stone-600">
               {pixKeyType
                 ? `Chave Pix (${pixKeyType})`
@@ -200,9 +263,52 @@ export function PixPayment({
           </div>
         )}
 
+        {pixReceiptMessage && (
+          <p className="rounded-lg border border-stone-200 bg-white p-3 text-center text-xs text-stone-600">
+            {pixReceiptMessage}
+          </p>
+        )}
+
         {status === "pending" ? (
-          <div className="rounded-lg bg-yellow-50 p-3 text-center text-sm text-yellow-800">
-            🕐 Aguardando confirmação do pagamento.
+          paymentProvider === "manual" ? (
+            // Pix Manual (BR Code local) — o cliente envia o comprovante via WhatsApp
+            // da loja. O admin confirma manualmente no Kanban após cruzar.
+            <div className="space-y-2">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center text-xs text-amber-900">
+                Após pagar pelo app do banco, envie o comprovante pelo WhatsApp da loja
+                para confirmar o pedido.
+              </div>
+              {storeWhatsapp ? (
+                <a
+                  href={(() => {
+                    const msg = encodeURIComponent(
+                      `Olá! Acabei de fazer o Pix do pedido ${orderNumber ?? ""} no valor de R$ ${total.toFixed(2).replace(".", ",")}. Segue o comprovante em anexo.`
+                    );
+                    const phone = storeWhatsapp.replace(/\D/g, "");
+                    return `https://wa.me/55${phone}?text=${msg}`;
+                  })()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-emerald-700"
+                >
+                  💬 Enviar comprovante pelo WhatsApp
+                </a>
+              ) : (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-center text-xs text-rose-800">
+                  Loja sem WhatsApp cadastrado — peça confirmação pelo telefone.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg bg-yellow-50 p-3 text-center text-sm text-yellow-800">
+              🕐 Aguardando confirmação do pagamento.
+            </div>
+          )
+        ) : paymentProvider === "manual" ? (
+          // Não mostra o botão "Já fiz o Pix" no fluxo manual — confirmação é
+          // via WhatsApp + Kanban. Se status saiu de pending, admin já confirmou.
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-sm text-emerald-800">
+            ✅ Loja confirmou o pagamento. Seu pedido está sendo preparado!
           </div>
         ) : (
           <button

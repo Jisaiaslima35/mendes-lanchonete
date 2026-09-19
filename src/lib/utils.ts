@@ -85,6 +85,41 @@ export function trimSeconds(time: string | null | undefined) {
   return time.slice(0, 5);
 }
 
+/**
+ * "Hoje, 11:36" / "Ontem, 11:36" / "13/09, 11:36" / "13/09/26, 11:36" (ano diferente).
+ * Bom pra Kanban onde a coluna Concluídos acumula pedidos antigos.
+ */
+export function formatWhenShort(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+
+  const now = new Date();
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const time = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  }).format(d);
+
+  if (sameDay(d, now)) return `Hoje, ${time}`;
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, yesterday)) return `Ontem, ${time}`;
+
+  const sameYear = d.getFullYear() === now.getFullYear();
+  const datePart = sameYear
+    ? new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" }).format(d)
+    : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "America/Sao_Paulo" }).format(d);
+
+  return `${datePart}, ${time}`;
+}
+
 export function pluralize(count: number, singular: string, plural: string) {
   return count === 1 ? singular : plural;
 }

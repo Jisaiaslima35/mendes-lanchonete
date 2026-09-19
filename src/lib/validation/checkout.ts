@@ -27,19 +27,19 @@ const addressSchema = z.object({
   complement: z.string().trim().max(80).optional(),
   district: z.string().trim().min(2, "Informe o bairro.").max(80),
   reference: z.string().trim().max(120).optional(),
-  neighborhoodId: z.string().uuid({ message: "Selecione um bairro atendido." }),
 });
 
 export const checkoutSchema = z
   .object({
-    fulfillment: z.enum(["delivery", "pickup"]),
+    fulfillment: z.enum(["delivery", "pickup", "mesa"]),
+    mesa: z.string().trim().min(1).max(20).optional(),
     customerName: z.string().trim().min(2, "Informe seu nome.").max(80),
     customerPhone: phoneSchema,
     customerEmail: z
-  .string()
-  .trim()
-  .email("Informe um e-mail válido.")
-  .max(120),
+      .string()
+      .trim()
+      .email("Informe um e-mail válido.")
+      .max(120),
     address: addressSchema.optional(),
     paymentMethod: z.enum(["pix", "cash", "card"]),
     changeFor: z.coerce.number().min(0).optional(),
@@ -53,6 +53,13 @@ export const checkoutSchema = z
         code: "custom",
         path: ["address"],
         message: "Informe o endereço de entrega.",
+      });
+    }
+    if (data.fulfillment === "mesa" && !data.mesa) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["mesa"],
+        message: "Mesa não identificada. Escaneie o QR Code da mesa novamente.",
       });
     }
   });

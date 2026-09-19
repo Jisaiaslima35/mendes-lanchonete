@@ -4,12 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useCarrinho } from "@/lib/carrinho/contexto";
+import { useMesa } from "@/lib/mesa/contexto";
 import { submitCheckout } from "@/lib/actions/checkout";
-import { resolveDeliveryFee, cartTotal } from "@/lib/precos";
+import { cartTotal } from "@/lib/precos";
 import { formatCurrency, formatPhone, formatZip, onlyDigits } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select, Textarea, FieldGroup, FieldError } from "@/components/ui/field";
-import type { Neighborhood, Settings } from "@/types/database";
+import { Input, Label, Textarea, FieldGroup, FieldError } from "@/components/ui/field";
+import type { Settings } from "@/types/database";
 
 type DeliveryQuoteClient = {
   ok: boolean;
@@ -28,16 +29,23 @@ type DeliveryQuoteClient = {
 
 export function CheckoutForm({
   settings,
-  neighborhoods,
 }: {
   settings: Settings;
-  neighborhoods: Neighborhood[];
 }) {
   const router = useRouter();
+  // Mesa vem do MesaProvider — sobrevive à navegação sem querystring
+  // (cookie/localStorage). A página `/checkout` carrega com mesa mesmo
+  // se o cliente chegou aqui via `<Link>` que perdeu o `?mesa=X`.
+  const { mesa, clearMesa } = useMesa();
+
   const { itens, subtotal, limparCarrinho } = useCarrinho();
 
-  const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">(
-    settings.accepts_delivery ? "delivery" : "pickup",
+  const [fulfillment, setFulfillment] = useState<"delivery" | "pickup" | "mesa">(
+    mesa
+      ? "mesa"
+      : settings.accepts_delivery
+        ? "delivery"
+        : "pickup",
   );
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -46,7 +54,7 @@ export function CheckoutForm({
   const [street, setStreet] = useState("");
   const [number, setNumber] = useState("");
   const [complement, setComplement] = useState("");
-  const [neighborhoodId, setNeighborhoodId] = useState("");
+  const [district, setDistrict] = useState("");
   const [reference, setReference] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "cash" | "card">(
     settings.payment_pix ? "pix" : settings.payment_cash ? "cash" : "card",
@@ -73,22 +81,24 @@ export function CheckoutForm({
   useEffect(() => {
     if (fulfillment !== "delivery") return;
     const cepDigits = onlyDigits(zip);
-    if (cepDigits.length !== 8) {
-      // CEP incompleto → reseta tudo que veio de lookup anterior.
-      setQuote(null);
-      setQuoteError(null);
-      setCityDisplay(null);
-      return;
-    }
-
-    setQuoteLoading(true);
-    setQuoteError(null);
 
     quoteAbortRef.current?.abort();
     const ctrl = new AbortController();
     quoteAbortRef.current = ctrl;
 
     const timer = setTimeout(async () => {
+      if (cepDigits.length !== 8) {
+        // CEP incompleto → reseta tudo que veio de lookup anterior de forma assíncrona.
+        setQuote(null);
+        setQuoteError(null);
+        setCityDisplay(null);
+        setQuoteLoading(false);
+        return;
+      }
+
+      setQuoteLoading(true);
+      setQuoteError(null);
+
       try {
         const res = await fetch(
           `/api/delivery/quote?cep=${encodeURIComponent(cepDigits)}`,
@@ -101,13 +111,7 @@ export function CheckoutForm({
         // Auto-preencher rua/bairro se o cliente deixou vazio
         // (não sobrescreve se ele já digitou algo — usa fallback via flag).
         if (data.address?.logradouro && !street) setStreet(data.address.logradouro);
-        if (data.address?.bairro && !neighborhoodId) {
-          // tenta casar com um bairro do <select>
-          const match = neighborhoods.find(
-            (n) => n.name.trim().toLowerCase() === data.address!.bairro.trim().toLowerCase(),
-          );
-          if (match) setNeighborhoodId(match.id);
-        }
+        if (data.address?.bairro && !district) setDistrict(data.address.bairro);
         if (data.address?.cidade) setCityDisplay(`${data.address.cidade}/${data.address.uf}`);
       } catch (err) {
         if (ctrl.signal.aborted) return;
@@ -120,30 +124,23 @@ export function CheckoutForm({
       }
     }, 350); // debounce — espera o cara parar de digitar
 
-    return () => clearTimeout(timer);
-    // não precisamos re-rodar se `street`/`neighborhoodId` mudarem — só CEP e modo.
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+    // não precisamos re-rodar se `street` mudar — só CEP e modo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zip, fulfillment]);
 
-  const selectedNeighborhood = neighborhoods.find((n) => n.id === neighborhoodId) ?? null;
-
-  // === Regra de preço do frete (Mendes v1) ===
-  //   1. CEP válido + lookup OK → usa `delivery_fee` da quote (cap R$4 já aplicado)
-  //   2. CEP completo mas lookup caiu em fallback → usa o `delivery_fee` retornado
-  //      (R$3, ou seja o que o servidor decidir)
-  //   3. CEP vazio/incompleto → tabela do bairro (legado)
-  const fallbackDeliveryFee = resolveDeliveryFee(
-    selectedNeighborhood,
-    settings,
-    subtotal,
-  );
   const cepReady = fulfillment === "delivery" && onlyDigits(zip).length === 8;
   const quoteApplies = cepReady && quote != null;
+  // Sem bairro selecionado (input livre): a taxa vem 100% da quote ViaCEP.
+  // Se o CEP ainda não foi consultado, fica R$0 até o lookup resolver.
   const deliveryFee =
     fulfillment === "delivery"
       ? quoteApplies
         ? quote.delivery_fee
-        : fallbackDeliveryFee
+        : 0
       : 0;
   const total = useMemo(
     () => cartTotal({ subtotal, deliveryFee, discount: 0 }),
@@ -158,6 +155,7 @@ export function CheckoutForm({
     setSubmitting(true);
     const result = await submitCheckout({
       fulfillment,
+      mesa: fulfillment === "mesa" ? mesa ?? undefined : undefined,
       customerName: name,
       customerPhone: phone,
       customerEmail: email,
@@ -168,9 +166,8 @@ export function CheckoutForm({
               street,
               number,
               complement: complement || undefined,
-              district: selectedNeighborhood?.name ?? "",
+              district,
               reference: reference || undefined,
-              neighborhoodId,
             }
           : undefined,
       paymentMethod,
@@ -223,6 +220,9 @@ if (paymentMethod === "pix") {
   console.log("PIX MERCADO PAGO:", paymentData);
 }
 limparCarrinho();
+// Mesa: limpa a persistência pra não travar pedidos futuros no mesmo
+// aparelho (cliente pode pedir de novo sem escanear QR de novo).
+if (fulfillment === "mesa") clearMesa();
 router.push(`/pedido/${result.data.publicToken}`);
   }
 
@@ -232,6 +232,7 @@ router.push(`/pedido/${result.data.publicToken}`);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 pb-8" noValidate>
+      {!mesa && (
       <fieldset className="space-y-2">
         <legend className="mb-1 font-semibold text-brand-900">Como você quer receber?</legend>
         <div className="grid grid-cols-2 gap-2">
@@ -261,6 +262,22 @@ router.push(`/pedido/${result.data.publicToken}`);
           )}
         </div>
       </fieldset>
+      )}
+
+      {fulfillment === "mesa" && mesa && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <span aria-hidden className="text-lg">📍</span>
+          <div className="flex-1">
+            <p className="font-semibold">Atendimento no Local — Mesa {mesa}</p>
+            <p className="text-xs text-emerald-700">
+              Sem taxa de entrega. Avisaremos no seu WhatsApp quando sair da cozinha.
+            </p>
+          </div>
+          <span className="rounded-full bg-emerald-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-900">
+            Mesa
+          </span>
+        </div>
+      )}
 
       <fieldset className="space-y-3">
         <legend className="mb-1 font-semibold text-brand-900">Seus dados</legend>
@@ -336,23 +353,21 @@ router.push(`/pedido/${result.data.publicToken}`);
             <Input id="complement" value={complement} onChange={(e) => setComplement(e.target.value)} />
           </FieldGroup>
           <FieldGroup>
-            <Label htmlFor="neighborhood" required>
+            <Label htmlFor="district" required>
               Bairro
             </Label>
-            <Select
-              id="neighborhood"
+            <Input
+              id="district"
               required
-              value={neighborhoodId}
-              onChange={(e) => setNeighborhoodId(e.target.value)}
-            >
-              <option value="">Selecione seu bairro</option>
-              {neighborhoods.map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.name} — {n.delivery_fee > 0 ? formatCurrency(n.delivery_fee) : "grátis"}
-                </option>
-              ))}
-            </Select>
-            <FieldError message={fieldErrors["address.neighborhoodId"]?.[0]} />
+              autoComplete="address-level3"
+              placeholder="Ex.: Centro"
+              value={district}
+              onChange={(e) => setDistrict(e.target.value)}
+            />
+            <p className="text-xs text-stone-500">
+              Preenchemos automaticamente pelo CEP, mas você pode corrigir aqui.
+            </p>
+            <FieldError message={fieldErrors["address.district"]?.[0]} />
           </FieldGroup>
           <FieldGroup>
             <Label htmlFor="reference">Ponto de referência</Label>
@@ -473,9 +488,27 @@ router.push(`/pedido/${result.data.publicToken}`);
         </p>
       )}
 
-      <Button type="submit" size="lg" className="w-full" disabled={submitting}>
-  {submitting ? "Enviando pedido..." : "Finalizar pedido"}
-</Button>
+      {/* Sticky Bottom Bar no Mobile com Total em Destaque e Finalizar Pedido */}
+      <div className="sticky bottom-0 z-30 -mx-4 -mb-20 mt-4 border-t border-brand-900/10 bg-white/95 p-4 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] backdrop-blur-md">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+              Total a pagar
+            </span>
+            <span className="text-lg font-black text-brand-900">
+              {formatCurrency(total)}
+            </span>
+          </div>
+          <Button
+            type="submit"
+            size="lg"
+            className="flex-1 max-w-[240px] font-bold shadow-md shadow-brand-900/20"
+            disabled={submitting}
+          >
+            {submitting ? "Enviando pedido..." : "Finalizar pedido"}
+          </Button>
+        </div>
+      </div>
     </form>
   );
 }

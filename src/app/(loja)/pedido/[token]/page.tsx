@@ -100,6 +100,12 @@ export default async function PedidoConfirmacaoPage({
   pixQrCode={order.pix_qr_code}
   pixQrCodeBase64={order.pix_qr_code_base64}
   pixTicketUrl={order.pix_ticket_url}
+  pixBeneficiary={settings.pix_beneficiary}
+  pixReceiptMessage={settings.pix_receipt_message}
+  pixStaticQrBase64={settings.pix_static_qr_base64}
+  paymentProvider={order.payment_provider ?? null}
+  storeWhatsapp={settings.whatsapp_number}
+  orderNumber={order.order_number}
 />
       )}
 

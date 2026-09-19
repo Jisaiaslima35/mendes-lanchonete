@@ -163,7 +163,7 @@ export async function POST(request: Request) {
       .update(patch)
       .eq("id", orderId)
       .not("status", "in", "(entregue,cancelado)")
-      .select("id, status, order_number, customer_name, customer_phone, customer_email, fulfillment, address_zip, address_street, address_number, address_complement, address_district, address_reference, neighborhood_name, payment_method, payment_status, payment_transaction_id, payment_paid_at, items_total, delivery_fee, discount, total");
+      .select("id, tenant_id, status, order_number, customer_name, customer_phone, customer_email, fulfillment, address_zip, address_street, address_number, address_complement, address_district, address_reference, neighborhood_name, payment_method, payment_status, change_for, payment_transaction_id, payment_paid_at, items_total, delivery_fee, discount, total");
 
     if (error) {
       console.error("[webhook MP] erro ao atualizar pedido", {
@@ -191,17 +191,44 @@ export async function POST(request: Request) {
     // Pix aprovado = cozinha começa a preparar ⇒ dono precisa ser avisado já.
     if (orderStatus === "confirmado") {
       const updatedOrder = updatedRows[0];
-      const { data: items } = await supabase
-        .from("order_items")
-        .select("id, order_id, product_id, product_name, unit_price, quantity, options, options_total, notes, line_total, created_at")
-        .eq("order_id", orderId);
+      const tenantId = (updatedOrder as unknown as { tenant_id?: string }).tenant_id;
+      if (!tenantId) {
+        console.error("[webhook MP] pedido sem tenant_id no update row", { orderId });
+      } else {
+        const [{ data: items }, { data: tenant }, { data: settings }] = await Promise.all([
+          supabase
+            .from("order_items")
+            .select("id, order_id, product_id, product_name, unit_price, quantity, options, options_total, notes, line_total, created_at")
+            .eq("order_id", orderId),
+          supabase
+            .from("tenants")
+            .select("id, slug, evolution_instance_name")
+            .eq("id", tenantId)
+            .maybeSingle(),
+          supabase
+            .from("settings")
+            .select("whatsapp_number")
+            .eq("tenant_id", tenantId)
+            .maybeSingle(),
+        ]);
 
-      void sendOrderToN8N(
-        buildOrderPayload(
-          updatedOrder as unknown as Parameters<typeof buildOrderPayload>[0],
-          (items ?? []) as unknown as Parameters<typeof buildOrderPayload>[1],
-        ),
-      );
+        if (tenant) {
+          void sendOrderToN8N(
+            buildOrderPayload(
+              updatedOrder as unknown as Parameters<typeof buildOrderPayload>[0],
+              (items ?? []) as unknown as Parameters<typeof buildOrderPayload>[1],
+              {
+                tenant_id: tenant.id,
+                tenant_slug: tenant.slug,
+                evolution_instance_name: tenant.evolution_instance_name ?? null,
+                store_whatsapp: settings?.whatsapp_number ?? null,
+              },
+            ),
+          );
+        } else {
+          console.error("[webhook MP] tenant não encontrado pra disparo n8n", { tenantId });
+        }
+      }
     }
 
     return NextResponse.json({ ok: true, updated: true, status: orderStatus }, { status: 200 });

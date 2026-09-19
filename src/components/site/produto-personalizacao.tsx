@@ -8,9 +8,17 @@ import { effectivePrice, optionsTotalPerUnit } from "@/lib/precos";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea, Label, FieldGroup } from "@/components/ui/field";
-import type { ProductWithOptions } from "@/types/database";
+import { AbasCategorias } from "@/components/site/abas-categorias";
+import { CarrinhoInline } from "@/components/site/carrinho-inline";
+import type { Category, ProductWithOptions } from "@/types/database";
 
-export function ProdutoPersonalizacao({ product }: { product: ProductWithOptions }) {
+export function ProdutoPersonalizacao({
+  product,
+  categorias,
+}: {
+  product: ProductWithOptions;
+  categorias: Category[];
+}) {
   const router = useRouter();
   const { adicionarItem } = useCarrinho();
 
@@ -71,7 +79,7 @@ export function ProdutoPersonalizacao({ product }: { product: ProductWithOptions
   }
 
   return (
-    <div className="space-y-6 pb-28">
+    <div className="space-y-6 pb-12">
       {product.option_groups.map((group) => (
         <fieldset key={group.id} className="space-y-2">
           <legend className="mb-1 flex items-baseline justify-between font-semibold text-brand-900">
@@ -125,36 +133,52 @@ export function ProdutoPersonalizacao({ product }: { product: ProductWithOptions
         </p>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-brand-900/10 bg-cream-50/95 p-3 shadow-[0_-4px_16px_rgba(54,36,25,0.08)] backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center gap-3">
+      {/* Quantidade + Adicionar: agora no fluxo normal (não flutuante), */}
+      {/* pra não serem cobertos pela barra do carrinho. */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-3 rounded-lg border border-stone-300 bg-white px-2 py-1.5">
             <button
               type="button"
               aria-label="Diminuir quantidade"
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              className="flex h-7 w-7 items-center justify-center rounded text-stone-600 hover:bg-stone-100"
+              className="flex h-8 w-8 items-center justify-center rounded text-stone-600 hover:bg-stone-100"
             >
               <Minus className="h-4 w-4" />
             </button>
-            <span className="w-4 text-center font-medium" aria-live="polite">
+            <span className="w-6 text-center font-medium" aria-live="polite">
               {quantity}
             </span>
             <button
               type="button"
               aria-label="Aumentar quantidade"
               onClick={() => setQuantity((q) => q + 1)}
-              className="flex h-7 w-7 items-center justify-center rounded text-stone-600 hover:bg-stone-100"
+              className="flex h-8 w-8 items-center justify-center rounded text-stone-600 hover:bg-stone-100"
             >
               <Plus className="h-4 w-4" />
             </button>
           </div>
           <Button className="flex-1" size="lg" onClick={handleAdicionar} disabled={!product.is_available}>
             {product.is_available
-              ? `Adicionar — ${formatCurrency(total)}`
+              ? `Adicionar ao pedido — ${formatCurrency(total)}`
               : "Produto esgotado"}
           </Button>
         </div>
+
+        {/* Versão inline do "Ver carrinho" — visível, mas discreta e fora do caminho do CTA. */}
+        <CarrinhoInline />
       </div>
+
+      {/* Cards de categoria (mesmo padrão visual da home) — carrossel horizontal. */}
+      <section aria-labelledby="outras-categorias" className="space-y-2 pt-2">
+        <h2 id="outras-categorias" className="text-sm font-semibold text-brand-900">
+          Explore outras categorias
+        </h2>
+        <AbasCategorias
+          categorias={categorias}
+          categoriaAtual={product.category.slug}
+        />
+      </section>
     </div>
   );
 }

@@ -133,6 +133,59 @@ export function SettingsForm({
       </section>
 
       <section className="space-y-3 rounded-xl border border-stone-200 bg-white p-4">
+        <h2 className="font-semibold text-stone-900">Localização da loja (frete por distância)</h2>
+        <p className="text-xs text-stone-500">
+          Lat/lng/CEP da sua loja. Quando o cliente digita o CEP de entrega, calculamos a distância
+          em linha reta (Haversine) e cobrados de R$ 2 a R$ 4. Se deixar vazio, o frete cai pra
+          R$ 3 fixo ou a taxa do bairro (configurada abaixo em Bairros).
+        </p>
+        <div className="grid grid-cols-3 gap-3">
+          <FieldGroup className="mb-0">
+            <Label htmlFor="store_lat">Latitude</Label>
+            <Input
+              id="store_lat"
+              type="number"
+              step="0.0000001"
+              placeholder="-5.7058"
+              value={form.store_lat ?? ""}
+              onChange={(e) =>
+                setField(
+                  "store_lat",
+                  e.target.value === "" ? null : Number(e.target.value),
+                )
+              }
+            />
+          </FieldGroup>
+          <FieldGroup className="mb-0">
+            <Label htmlFor="store_lng">Longitude</Label>
+            <Input
+              id="store_lng"
+              type="number"
+              step="0.0000001"
+              placeholder="-35.2974"
+              value={form.store_lng ?? ""}
+              onChange={(e) =>
+                setField(
+                  "store_lng",
+                  e.target.value === "" ? null : Number(e.target.value),
+                )
+              }
+            />
+          </FieldGroup>
+          <FieldGroup className="mb-0">
+            <Label htmlFor="store_cep">CEP da loja</Label>
+            <Input
+              id="store_cep"
+              inputMode="numeric"
+              placeholder="59135000"
+              value={form.store_cep ?? ""}
+              onChange={(e) => setField("store_cep", onlyDigits(e.target.value))}
+            />
+          </FieldGroup>
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-stone-200 bg-white p-4">
         <h2 className="font-semibold text-stone-900">Pagamento</h2>
         <div className="grid grid-cols-3 gap-3">
           <label className="flex items-center gap-2 text-sm text-stone-700">
@@ -148,6 +201,104 @@ export function SettingsForm({
             Cartão
           </label>
         </div>
+
+        {/*
+          Pix Manual (BR Code / EMVCo) — sem dependência do MercadoPago.
+          Migration 2026-09-18_pix_manual_brcode.sql.
+          Quando ligado, o servidor gera o payload BR Code com o valor travado
+          do pedido, e o admin confirma o pagamento manualmente após ver o
+          comprovante no WhatsApp.
+        */}
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-3">
+          <label className="flex items-center gap-2 text-sm text-stone-800 font-semibold">
+            <Checkbox
+              checked={form.pix_manual_enabled ?? false}
+              onChange={(e) => setField("pix_manual_enabled", e.target.checked)}
+            />
+            Habilitar Pix Manual (sem MercadoPago)
+          </label>
+          <p className="text-xs text-stone-600">
+            Ative se a loja não usa MercadoPago. O BR Code será gerado no servidor
+            com valor travado. O admin confirma o pagamento no Kanban após ver o
+            comprovante no WhatsApp da loja.
+          </p>
+          {form.pix_manual_enabled && (
+            <div className="grid grid-cols-2 gap-3">
+              <FieldGroup className="mb-0">
+                <Label htmlFor="pix_key">Chave Pix</Label>
+                <Input
+                  id="pix_key"
+                  placeholder="CPF, CNPJ, e-mail, celular ou chave aleatória"
+                  value={form.pix_key ?? ""}
+                  onChange={(e) => setField("pix_key", e.target.value)}
+                />
+              </FieldGroup>
+              <FieldGroup className="mb-0">
+                <Label htmlFor="pix_key_type">Tipo da chave</Label>
+                <select
+                  id="pix_key_type"
+                  className="h-10 rounded-lg border border-stone-200 bg-white px-3 text-sm"
+                  value={form.pix_key_type ?? ""}
+                  onChange={(e) => setField("pix_key_type", e.target.value)}
+                >
+                  <option value="">Selecione...</option>
+                  <option value="cpf">CPF</option>
+                  <option value="cnpj">CNPJ</option>
+                  <option value="email">E-mail</option>
+                  <option value="phone">Celular</option>
+                  <option value="random">Chave aleatória</option>
+                </select>
+              </FieldGroup>
+              <FieldGroup className="mb-0">
+                <Label htmlFor="pix_merchant_city">Cidade do recebedor (EMVCo campo 60)</Label>
+                <Input
+                  id="pix_merchant_city"
+                  placeholder="Ex: Natal"
+                  value={form.pix_merchant_city ?? ""}
+                  onChange={(e) => setField("pix_merchant_city", e.target.value)}
+                />
+              </FieldGroup>
+              <FieldGroup className="mb-0">
+                <Label htmlFor="pix_beneficiary">Nome do recebedor (EMVCo campo 59)</Label>
+                <Input
+                  id="pix_beneficiary"
+                  placeholder="Ex: Mendes Lanchonete LTDA"
+                  value={form.pix_beneficiary ?? ""}
+                  onChange={(e) => setField("pix_beneficiary", e.target.value)}
+                />
+              </FieldGroup>
+            </div>
+          )}
+        </div>
+
+        <FieldGroup>
+          <Label htmlFor="pix_receipt_message">Mensagem exibida ao cliente na página de Pix</Label>
+          <Input
+            id="pix_receipt_message"
+            placeholder="Ex: Pagamento para Mendes Lanchonete, CNPJ 12.345.678/0001-90"
+            value={form.pix_receipt_message ?? ""}
+            onChange={(e) => setField("pix_receipt_message", e.target.value)}
+          />
+        </FieldGroup>
+
+        {/* QR Pix estático do tenant — fallback SÓ quando Pix Manual NÃO está ativo.
+            Com Pix Manual ligado, o BR Code é gerado dinamicamente no checkout
+            com valor travado, então o QR estático fixo fica redundante. */}
+        {!form.pix_manual_enabled && (
+          <FieldGroup>
+            <Label htmlFor="pix_static_qr_base64">QR Pix estático (PNG base64) — fallback</Label>
+            <Input
+              id="pix_static_qr_base64"
+              placeholder="Cole aqui o base64 da imagem PNG do QR (data:image/png;base64,...)"
+              value={form.pix_static_qr_base64 ?? ""}
+              onChange={(e) => setField("pix_static_qr_base64", e.target.value)}
+            />
+            <p className="mt-1 text-xs text-stone-500">
+              Usado quando o Pix dinâmico do MercadoPago não está disponível. Cole o conteúdo
+              (sem o prefixo <code>data:image/png;base64,</code>) ou a string completa.
+            </p>
+          </FieldGroup>
+        )}
       </section>
 
       <section className="space-y-3 rounded-xl border border-stone-200 bg-white p-4">

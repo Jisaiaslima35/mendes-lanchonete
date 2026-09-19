@@ -3,7 +3,7 @@
  * supabase/migrations/0001_schema.sql. Manter em sincronia com as migrations.
  */
 
-export type FulfillmentType = "delivery" | "pickup";
+export type FulfillmentType = "delivery" | "pickup" | "mesa";
 export type PaymentMethod = "pix" | "cash" | "card";
 export type OrderStatus =
   | "novo"
@@ -23,6 +23,19 @@ interface TenantRow {
   slug: string;
   is_active: boolean;
   created_at: string;
+  // Colunas adicionadas pela migration 2026-09-15_multitenant.sql
+  subdomain: string | null;
+  owner_phone: string | null;
+  owner_email: string | null;
+  settings: Record<string, unknown>;
+  // Colunas adicionadas pela migration 2026-09-16_evolution.sql
+  // Cache local do estado da instancia Evolution API por tenant.
+  // instanceName = slug (default); state sincronizado via webhook.
+  evolution_instance_name: string | null;
+  evolution_state: "open" | "close" | "connecting" | null;
+  evolution_owner_jid: string | null;
+  evolution_connected_at: string | null;
+  evolution_webhook_set: boolean;
 }
 
 interface SettingsRow {
@@ -58,6 +71,25 @@ interface SettingsRow {
   payment_card: boolean;
   pix_key: string | null;
   pix_key_type: string | null;
+  /**
+   * Campos adicionados em 2026-09-16_store_coords_pix.sql.
+   * Lote 1 da auditoria: isola coordenadas da loja e dados Pix por tenant
+   * (antes vinham de process.env global).
+   */
+  store_lat: number | null;
+  store_lng: number | null;
+  store_cep: string | null;
+  pix_beneficiary: string | null;
+  pix_static_qr_base64: string | null;
+  pix_receipt_message: string | null;
+  /**
+   * Campos adicionados em 2026-09-18_pix_manual_brcode.sql.
+   * Quando `pix_manual_enabled = true`, o checkout gera o BR Code local
+   * (EMVCo padrão Bacen) em vez de chamar o MercadoPago.
+   * `pix_merchant_city` é o campo EMVCo 60 (Merchant City).
+   */
+  pix_merchant_city: string | null;
+  pix_manual_enabled: boolean;
   order_prefix: string;
   created_at: string;
   updated_at: string;
@@ -80,6 +112,13 @@ interface AdminRow {
   email: string;
   role: AdminRole;
   is_active: boolean;
+  /**
+   * Flag EXPLICITA do admin da plataforma (Isaías). Diferente de role=owner:
+   * um dono de loja comum pode ter role=owner na propria loja mas NAO deve
+   * ter acesso SaaS-level (ver outros tenants, /super-admin, etc).
+   * Só is_super_admin=true libera o switcher e o /super-admin.
+   */
+  is_super_admin: boolean;
   created_at: string;
 }
 
@@ -235,13 +274,21 @@ interface OrderRow {
   payment_method: PaymentMethod;
 payment_status: "pending" | "confirmed" | "failed";
 customer_email: string | null;
-payment_provider: string | null;
-payment_transaction_id: string | null;
+  /**
+   * Provider do pagamento — adicionado em 2026-09-18_pix_manual_brcode.sql.
+   * Valores possíveis:
+   *   - "mercadopago": Pix dinâmico via SDK MP (webhook confirma)
+   *   - "manual":      BR Code gerado pelo servidor (admin confirma manualmente)
+   * null em cash/card.
+   */
+  payment_provider: "mercadopago" | "manual" | null;
+  payment_transaction_id: string | null;
 payment_paid_at: string | null;
 pix_qr_code: string | null;
 pix_qr_code_base64: string | null;
 pix_ticket_url: string | null;
 change_for: number | null;
+  mesa: string | null;
   items_total: number;
   delivery_fee: number;
   discount: number;

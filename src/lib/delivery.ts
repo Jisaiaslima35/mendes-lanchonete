@@ -16,6 +16,7 @@
  *   - em testes / futuro uso offline, com stub
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { onlyDigits, round2 } from "@/lib/utils";
 
 // ====================================================================
@@ -268,7 +269,15 @@ export async function quoteDelivery(
   };
 }
 
-/** Lê a localização da loja a partir do processo (envs). Valida e dá throw se inválido. */
+/**
+ * Lê a localização da loja a partir do processo (envs). DEPRECADO em 16/09:
+ * cada tenant agora tem lat/lng/cep na própria `settings` (migration
+ * 2026-09-16_store_coords_pix.sql). Use `readStoreLocationForTenant(db, tenantId)`.
+ *
+ * Mantido como fallback de segurança pra deploys que ainda não backfillaram
+ * as settings (ex: rodar o dev local sem ter rodado a migration). NÃO use em
+ * código novo — se a rota é multi-tenant, é obrigatório ler por tenant.
+ */
 export function readStoreLocationFromEnv(): StoreLocation {
   const cep = normalizeCep(process.env.STORE_CEP ?? "");
   const lat = Number(process.env.STORE_LAT);
@@ -277,5 +286,45 @@ export function readStoreLocationFromEnv(): StoreLocation {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     throw new Error("STORE_LAT/STORE_LNG ausentes ou inválidos.");
   }
+  return { cep, lat, lng };
+}
+
+/**
+ * Lê a localização da loja do `settings` do tenant ativo.
+ * Retorna `null` se o admin ainda não preencheu as coordenadas — nesse
+ * caso o caller deve cair pra FALLBACK_FEE (R$3) em vez de quebrar o
+ * checkout. Lote 1 auditoria: isola STORE_LAT/LNG por tenant.
+ */
+type TenantSettingsRow = {
+  store_lat: number | string | null;
+  store_lng: number | string | null;
+  store_cep: string | null;
+};
+
+/**
+ * Aceita qualquer cliente Supabase com permissão de leitura em `settings`
+ * (admin Supabase ou service_role bypassando RLS). Em produção multi-tenant
+ * use sempre o `tenantId` do request atual — NUNCA outro tenant.
+ */
+export async function readStoreLocationForTenant(
+  db: SupabaseClient,
+  tenantId: string,
+): Promise<StoreLocation | null> {
+  const { data, error } = await db
+    .from("settings")
+    .select("store_lat, store_lng, store_cep")
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  const row = data as TenantSettingsRow;
+
+  const cep = normalizeCep(row.store_cep ?? "");
+  const lat = row.store_lat == null ? NaN : Number(row.store_lat);
+  const lng = row.store_lng == null ? NaN : Number(row.store_lng);
+
+  if (cep.length !== 8) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
   return { cep, lat, lng };
 }

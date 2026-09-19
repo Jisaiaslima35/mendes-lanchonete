@@ -1,12 +1,15 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { getProductBySlug } from "@/lib/queries/catalogo";
+import { getProductBySlug, getCategories } from "@/lib/queries/catalogo";
 import { formatCurrency } from "@/lib/utils";
 import { ProdutoPersonalizacao } from "@/components/site/produto-personalizacao";
 
 export default async function ProdutoPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const product = await getProductBySlug(slug);
+  const [product, categorias] = await Promise.all([
+    getProductBySlug(slug),
+    getCategories(),
+  ]);
   if (!product) notFound();
 
   const temPromo = product.promo_price != null;
@@ -47,7 +50,7 @@ export default async function ProdutoPage({ params }: { params: Promise<{ slug: 
         <p className="mt-1 text-xs text-stone-500">Tempo de preparo: ~{product.prep_minutes} min</p>
       </div>
 
-      <ProdutoPersonalizacao product={product} />
+      <ProdutoPersonalizacao product={product} categorias={categorias} />
     </div>
   );
 }

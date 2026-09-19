@@ -4,22 +4,32 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShoppingBag } from "lucide-react";
 import { useCarrinho } from "@/lib/carrinho/contexto";
+import { useMesa } from "@/lib/mesa/contexto";
 import { formatCurrency, pluralize } from "@/lib/utils";
 
-// Rotas onde já existe um CTA "Finalizar pedido" — a barra flutuante só cobriria o botão principal.
+// Rotas onde já existe um CTA "Finalizar pedido" ou o layout é especializado,
+// pra que a barra flutuante não cubra o botão principal nem polua a tela.
+// `/produto/*` mostra a barra do carrinho inline (CarrinhoInline) na própria
+// página de detalhe — então escondemos a versão flutuante lá.
 const ROTAS_OCULTAS = new Set(["/carrinho", "/checkout"]);
+const ESCONDIDOS_PREFIXO = ["/produto/"];
 
 export function CarrinhoBar() {
   const pathname = usePathname();
+  const { mesa } = useMesa();
   const { totalItens, subtotal, isHidratado } = useCarrinho();
+
+  // Preserva ?mesa=X quando o cliente veio de um QR Code de mesa.
+  const carrinhoHref = mesa ? `/carrinho?mesa=${encodeURIComponent(mesa)}` : "/carrinho";
 
   if (!isHidratado || totalItens === 0) return null;
   if (pathname && ROTAS_OCULTAS.has(pathname)) return null;
+  if (pathname && ESCONDIDOS_PREFIXO.some((p) => pathname.startsWith(p))) return null;
 
   return (
     <div className="animate-fade-up fixed inset-x-0 bottom-0 z-40 p-3">
       <Link
-        href="/carrinho"
+        href={carrinhoHref}
         className="mx-auto flex max-w-3xl items-center justify-between rounded-2xl bg-linear-to-r from-brand-600 to-brand-700 px-5 py-3.5 text-white shadow-lg shadow-brand-900/30 transition-transform active:scale-[0.99]"
       >
         <span className="flex items-center gap-2 font-semibold">

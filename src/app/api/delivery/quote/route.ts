@@ -1,18 +1,23 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
   quoteDelivery,
-  readStoreLocationFromEnv,
+  readStoreLocationForTenant,
+  FALLBACK_FEE,
   type DeliveryQuote,
 } from "@/lib/delivery";
+import { createAdminSupabase } from "@/lib/supabase/admin";
+import { getCurrentTenantId } from "@/lib/tenant";
 
 /**
  * GET /api/delivery/quote?cep=<8digitos>
  *
  * Calcula o frete a partir da distância em linha reta (Haversine) entre
- * a loja (STORE_LAT/STORE_LNG) e o CEP de entrega do cliente.
+ * a loja DO TENANT ATIVO (settings.store_lat / store_lng / store_cep) e o
+ * CEP de entrega do cliente. Lote 1 auditoria: cada tenant usa SUAS
+ * coordenadas — não mais STORE_LAT/STORE_LNG global do .env.
  *
  * Fontes: ViaCEP + Nominatim (gratuitas, sem chave).
- * Teto: R$ 4,00. Fallback: R$ 3,00 se rede/CEP/geocoding falhar.
+ * Teto: R$ 4,00. Fallback: R$ 3,00 se rede/CEP/geocoding/store-null falhar.
  *
  * Resposta: shape `DeliveryQuote`. Sempre retorna 200 com `ok:false`
  * em fallback pra UI exibir a taxa default sem quebrar.
@@ -30,18 +35,21 @@ export async function GET(req: NextRequest): Promise<NextResponse<DeliveryQuote>
   const cepParam = req.nextUrl.searchParams.get("cep") ?? "";
   const debug = req.nextUrl.searchParams.get("debug") === "1";
 
-  let store;
-  try {
-    store = readStoreLocationFromEnv();
-  } catch (err) {
+  const tenantId = await getCurrentTenantId();
+  const db = createAdminSupabase();
+  const store = await readStoreLocationForTenant(db, tenantId);
+
+  if (!store) {
+    // Admin ainda não preencheu lat/lng/cep nas settings desta loja.
+    // Não quebra o cliente — UI mostra o FALLBACK_FEE (R$ 3) sem mudar UX.
     return NextResponse.json(
       {
         ok: false,
         source: "fallback",
         address: null,
         distance_km: null,
-        delivery_fee: 3.0,
-        reason: `store_unconfigured: ${err instanceof Error ? err.message : String(err)}`,
+        delivery_fee: FALLBACK_FEE,
+        reason: "store_unconfigured",
       } satisfies DeliveryQuote,
       { status: 200 },
     );
@@ -59,7 +67,7 @@ export async function GET(req: NextRequest): Promise<NextResponse<DeliveryQuote>
     if (!debug) {
       return NextResponse.json(quote, { status: 200 });
     }
-    return NextResponse.json({ ...quote, _debug: { store } }, { status: 200 });
+    return NextResponse.json({ ...quote, _debug: { store, tenant_id: tenantId } }, { status: 200 });
   } catch (err) {
     const reason = err instanceof Error ? err.name : "unknown";
     return NextResponse.json(
@@ -68,7 +76,7 @@ export async function GET(req: NextRequest): Promise<NextResponse<DeliveryQuote>
         source: "fallback",
         address: null,
         distance_km: null,
-        delivery_fee: 3.0,
+        delivery_fee: FALLBACK_FEE,
         reason: `exception:${reason}`,
       } satisfies DeliveryQuote,
       { status: 200 },

@@ -25,7 +25,7 @@
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "const o = $input.item.json.body || $input.item.json;\n\nconst text = `🛵💨 Olá, ${o.customer_name || 'cliente'}!\\n\\nSeu pedido ${o.order_id || '#'} acabou de sair para entrega e está a caminho do seu endereço:\\n📍 ${o.delivery_address || 'Endereço não informado'}\\n\\nLogo o entregador chega aí! Obrigado pela preferência. 🍔`;\n\nreturn [{ json: { number: o.customer_phone, text, order_id: o.order_id } }];\n"
+        "jsCode": "// Discrimina por modality: mesa/pickup/delivery têm mensagens diferentes.\nconst o = $input.item.json.body || $input.item.json;\nconst modality = o.modality || 'delivery';\nconst nome = o.customer_name || 'cliente';\nconst id = o.order_id || '#';\nconst addr = o.delivery_address || 'Endereço não informado';\n\nlet text;\nif (modality === 'mesa') {\n  const mesaLabel = o.mesa || addr.replace(/^Mesa\\s+/i, '');\n  text = `🍽 Olá, ${nome}! Seu pedido ${id} acabou de sair da cozinha e o garçom já está levando até a sua Mesa ${mesaLabel}. Bom apetite!`;\n} else if (modality === 'pickup') {\n  text = `🛍 Olá, ${nome}! Seu pedido ${id} já está pronto e embalado no balcão esperando por você. Pode vir retirar! Te aguardamos.`;\n} else {\n  // delivery (mantém texto padrão com entregador)\n  text = `🛵💨 Olá, ${nome}!\\n\\nSeu pedido ${id} acabou de sair para entrega e está a caminho do seu endereço:\\n📍 ${addr}\\n\\nLogo o entregador chega aí! Obrigado pela preferência. 🍔`;\n}\n\nreturn [{ json: { number: o.customer_phone, text, order_id: o.order_id } }];\n"
       },
       "id": "b09ff8ac-fcac-4032-a4ec-8938ae5fd500",
       "name": "Formatar Mensagem Cliente",

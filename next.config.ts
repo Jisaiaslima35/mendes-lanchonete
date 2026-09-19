@@ -7,8 +7,12 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       {
+        // Bucket `midia` do Supabase Cloud do Mendes.
+        // O hostname antigo (hdiuqdwlhcmzfhnkirfw) era de OUTRO projeto
+        // e causava erro 400 no Next Image Optimization. Sem isto, as
+        // fotos de produto no admin ficam com preview quebrado.
         protocol: "https",
-        hostname: "hdiuqdwlhcmzfhnkirfw.supabase.co",
+        hostname: "pxqyznkqbvdijdcadkum.supabase.co",
         pathname: "/storage/v1/object/public/**",
       },
       {
